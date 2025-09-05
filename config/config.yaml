@@ -1,0 +1,222 @@
+# RopeDP 配置文件
+
+# 文件提取配置
+extraction:
+  # 支持的文件类型
+  file_types:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".go"
+    - ".rs"
+    - ".php"
+    - ".rb"
+    - ".swift"
+    - ".kt"
+    - ".cs"
+    - ".scala"
+    - ".r"
+    - ".m"
+    - ".sh"
+    - ".sql"
+    - ".html"
+    - ".css"
+    - ".xml"
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".md"
+    - ".txt"
+  
+  # 排除的目录
+  exclude_dirs:
+    - ".git"
+    - "__pycache__"
+    - "node_modules"
+    - ".venv"
+    - "venv"
+    - "build"
+    - "dist"
+    - "target"
+    - ".idea"
+    - ".vscode"
+    - ".DS_Store"
+  
+  # 排除的文件
+  exclude_files:
+    - ".gitignore"
+    - ".gitattributes"
+    - "README.md"
+    - "LICENSE"
+    - "package-lock.json"
+    - "yarn.lock"
+    - "Pipfile.lock"
+  
+  # 最大文件大小 (字节)
+  max_file_size: 10485760  # 10MB
+
+# 文件清洗配置
+file_cleaning:
+  # 清理规则
+  cleanup_rules:
+    # 排除的目录
+    exclude_dirs:
+      - ".git"
+      - "__pycache__"
+      - "node_modules"
+      - ".venv"
+      - "venv"
+      - "build"
+      - "dist"
+      - "target"
+      - ".idea"
+      - ".vscode"
+      - ".DS_Store"
+    
+    # 排除的文件
+    exclude_files:
+      - ".DS_Store"
+      - "Thumbs.db"
+      - "desktop.ini"
+      - ".gitkeep"
+    
+    # 清理选项
+    remove_empty_dirs: true
+    remove_temp_files: true
+    remove_empty_files: false
+    normalize_filenames: true
+    lowercase_filenames: false
+    
+    # 可清洗的文件类型
+    cleanable_extensions:
+      - ".py"
+      - ".js"
+      - ".ts"
+      - ".java"
+      - ".cpp"
+      - ".c"
+      - ".h"
+      - ".go"
+      - ".rs"
+      - ".php"
+      - ".rb"
+      - ".swift"
+      - ".kt"
+      - ".cs"
+      - ".scala"
+      - ".r"
+      - ".m"
+      - ".sh"
+      - ".sql"
+      - ".html"
+      - ".css"
+      - ".xml"
+      - ".json"
+      - ".yaml"
+      - ".yml"
+      - ".md"
+      - ".txt"
+    
+    # 内容清理选项
+    remove_trailing_whitespace: true
+    normalize_line_endings: true
+    remove_trailing_blank_lines: true
+    ensure_final_newline: true
+  
+  # 备份选项
+  backup_enabled: true
+  backup_dir: "data/backups"
+
+# 内容清洗配置
+cleaning:
+  # 移除注释
+  remove_comments: false
+  
+  # 移除空白行
+  remove_blank_lines: false
+  
+  # 标准化空白字符
+  normalize_whitespace: false
+  
+  # 移除导入语句
+  remove_imports: false
+  
+  # 保留代码结构
+  preserve_structure: true
+
+# 去重配置
+deduplication:
+  # 哈希算法
+  hash_algorithm: "sha256"
+  
+  # 相似度阈值
+  similarity_threshold: 0.95
+  
+  # 最小文件大小 (字节)
+  min_file_size: 100
+
+# 分析配置
+analysis:
+  # 语言检测
+  language_detection: true
+  
+  # 复杂度分析
+  complexity_analysis: true
+  
+  # 依赖分析
+  dependency_analysis: true
+  
+  # 指标计算
+  metrics_calculation: true
+
+# 报告配置
+reporting:
+  # 输出目录
+  output_dir: "data/reports"
+  
+  # 默认报告格式
+  default_format: "comprehensive"
+  
+  # 支持的格式
+  supported_formats:
+    - "json"
+    - "csv"
+    - "html"
+    - "markdown"
+    - "comprehensive"
+
+# 日志配置
+logging:
+  # 日志级别
+  level: "INFO"
+  
+  # 日志格式
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # 日志文件
+  file: "data/logs/ropedp.log"
+  
+  # 最大文件大小
+  max_file_size: 10485760  # 10MB
+  
+  # 保留文件数
+  backup_count: 5
+
+# 性能配置
+performance:
+  # 最大并发数
+  max_workers: 4
+  
+  # 批处理大小
+  batch_size: 100
+  
+  # 内存限制 (MB)
+  memory_limit: 1024
+  
+  # 超时时间 (秒)
+  timeout: 300
+

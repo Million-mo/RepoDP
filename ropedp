@@ -1,0 +1,12 @@
+#!/bin/bash
+# RopeDP 启动脚本
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$SCRIPT_DIR/src"
+
+# 设置Python路径
+export PYTHONPATH="$SRC_DIR:$PYTHONPATH"
+
+# 执行ropedp命令
+python -m ropedp "$@"
