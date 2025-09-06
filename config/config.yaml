@@ -121,6 +121,28 @@ file_cleaning:
     remove_temp_files: true
     remove_trailing_blank_lines: true
     remove_trailing_whitespace: true
+jsonl_cleaning:
+  # JSONL内容清洗配置
+  enable_comment_cleaning: true
+  enable_desensitization: true
+  remove_invalid_comments: true
+  preserve_copyright_structure: true
+  sensitive_patterns:
+    - email
+    - phone
+    - employee_id
+    - id_card
+    - ip_address
+    - url
+    - datetime
+    - person_name
+    - organization
+  invalid_comment_patterns:
+    - todo
+    - fixme
+    - version_info
+    - personal_signature
+    - change_history
 logging:
   backup_count: 5
   file: data/logs/repodp.log

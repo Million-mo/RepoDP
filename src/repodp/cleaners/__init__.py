@@ -2,9 +2,9 @@
 清洗器模块
 """
 
-from .file_cleaner import FileCleaner
 from .content_cleaner import ContentCleaner
 from .deduplicator import Deduplicator
+from .jsonl_content_cleaner import JSONLContentCleaner
 
-__all__ = ['FileCleaner', 'ContentCleaner', 'Deduplicator']
+__all__ = ['ContentCleaner', 'Deduplicator', 'JSONLContentCleaner']
 

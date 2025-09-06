@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 
 from .core import RepositoryManager, ConfigManager
 from .extractors import FileExtractor, CodeExtractor, TextExtractor
-from .cleaners import FileCleaner, ContentCleaner, Deduplicator
+from .cleaners import ContentCleaner, Deduplicator, JSONLContentCleaner
 from .analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
 
 # 配置日志
@@ -406,42 +406,152 @@ def extract(ctx, name, output, output_format):
 
 @main.command()
 @click.argument('name')
-@click.option('--backup', is_flag=True, help='创建备份')
+@click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
+@click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
 @click.pass_context
-def clean(ctx, name, backup):
-    """清洗文件"""
+def clean(ctx, name, output, in_place):
+    """清洗JSONL文件内容（注释脱敏、敏感信息处理）"""
     repo_manager = ctx.obj['repo_manager']
     config_manager = ctx.obj['config_manager']
     
-    # 检查仓库是否存在
-    repo_info = repo_manager.get_repository(name)
-    if not repo_info:
-        click.echo(f"❌ 仓库不存在: {name}")
+    # 检查提取的文件是否存在
+    extracted_file_jsonl = Path('data/extracted') / name / 'extracted_files.jsonl'
+    extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
+    
+    input_file = None
+    if extracted_file_jsonl.exists():
+        input_file = extracted_file_jsonl
+        click.echo(f"📄 找到JSONL文件: {extracted_file_jsonl}")
+    elif extracted_file_json.exists():
+        # 如果是JSON格式，先转换为JSONL处理
+        click.echo(f"📄 找到JSON文件，转换为JSONL格式处理: {extracted_file_json}")
+        import json
+        with open(extracted_file_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 创建临时JSONL文件
+        input_file = Path('data/extracted') / name / 'temp_extracted_files.jsonl'
+        with open(input_file, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False, default=str) + '\n')
+    else:
+        click.echo(f"❌ 未找到提取文件: {extracted_file_jsonl} 或 {extracted_file_json}")
+        click.echo("请先运行 'repodp extract' 命令提取文件")
         raise click.Abort()
     
-    repo_path = Path(repo_info['path'])
-    if not repo_path.exists():
-        click.echo(f"❌ 仓库路径不存在: {repo_path}")
+    # 设置输出文件路径
+    if in_place:
+        # 直接覆盖原文件，先创建备份
+        backup_file = input_file.with_suffix('.jsonl.backup')
+        import shutil
+        shutil.copy2(input_file, backup_file)
+        output_file = input_file
+        click.echo(f"💾 已创建备份文件: {backup_file}")
+    elif output:
+        output_file = Path(output)
+    else:
+        output_file = input_file.parent / f"{input_file.stem}_cleaned{input_file.suffix}"
+    
+    # 确保输出目录存在
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 创建内容清洗器并执行清洗
+    click.echo(f"🧹 开始清洗JSONL内容: {name}")
+    
+    content_cleaner = JSONLContentCleaner(config_manager.config)
+    results = content_cleaner.clean_jsonl_file(input_file, output_file)
+    
+    if results['success']:
+        stats = results['stats']
+        click.echo(f"✅ 内容清洗完成:")
+        click.echo(f"  • 处理文件: {stats['total_files']}")
+        click.echo(f"  • 清洗文件: {stats['files_cleaned']}")
+        click.echo(f"  • 删除注释: {stats['comments_removed']}")
+        click.echo(f"  • 脱敏注释: {stats['comments_desensitized']}")
+        click.echo(f"  • 敏感信息: {stats['sensitive_info_removed']} (涉及 {stats['files_with_sensitive_info']} 个文件)")
+        click.echo(f"  • 输出文件: {output_file}")
+        
+        # 如果是临时文件，清理掉
+        if input_file.name == 'temp_extracted_files.jsonl':
+            input_file.unlink()
+    else:
+        click.echo(f"❌ 内容清洗失败: {results['error']}")
+        raise click.Abort()
+
+
+@main.command()
+@click.argument('name')
+@click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
+@click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
+@click.pass_context
+def clean(ctx, name, output, in_place):
+    """清洗JSONL文件内容（注释脱敏、敏感信息处理）"""
+    repo_manager = ctx.obj['repo_manager']
+    config_manager = ctx.obj['config_manager']
+    
+    # 检查提取的文件是否存在
+    extracted_file_jsonl = Path('data/extracted') / name / 'extracted_files.jsonl'
+    extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
+    
+    input_file = None
+    if extracted_file_jsonl.exists():
+        input_file = extracted_file_jsonl
+        click.echo(f"📄 找到JSONL文件: {extracted_file_jsonl}")
+    elif extracted_file_json.exists():
+        # 如果是JSON格式，先转换为JSONL处理
+        click.echo(f"📄 找到JSON文件，转换为JSONL格式处理: {extracted_file_json}")
+        import json
+        with open(extracted_file_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 创建临时JSONL文件
+        input_file = Path('data/extracted') / name / 'temp_extracted_files.jsonl'
+        with open(input_file, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False, default=str) + '\n')
+    else:
+        click.echo(f"❌ 未找到提取文件: {extracted_file_jsonl} 或 {extracted_file_json}")
+        click.echo("请先运行 'repodp extract' 命令提取文件")
         raise click.Abort()
     
-    # 更新配置
-    config = config_manager.config.copy()
-    config['backup_enabled'] = backup
+    # 设置输出文件路径
+    if in_place:
+        # 直接覆盖原文件，先创建备份
+        backup_file = input_file.with_suffix('.jsonl.backup')
+        import shutil
+        shutil.copy2(input_file, backup_file)
+        output_file = input_file
+        click.echo(f"💾 已创建备份文件: {backup_file}")
+    elif output:
+        output_file = Path(output)
+    else:
+        output_file = input_file.parent / f"{input_file.stem}_cleaned{input_file.suffix}"
     
-    # 清洗文件
-    click.echo(f"🧹 开始清洗文件: {name}")
+    # 确保输出目录存在
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
-    file_cleaner = FileCleaner(config)
-    results = file_cleaner.clean_repository(repo_path, name)
+    # 创建内容清洗器并执行清洗
+    click.echo(f"🧹 开始清洗JSONL内容: {name}")
     
-    click.echo(f"✅ 清洗完成:")
-    click.echo(f"  • 清洗文件: {results['cleaned_files']}")
-    click.echo(f"  • 删除文件: {results['removed_files']}")
-    click.echo(f"  • 重命名文件: {results['renamed_files']}")
-    if results['errors']:
-        click.echo(f"  • 错误: {len(results['errors'])}")
-        for error in results['errors']:
-            click.echo(f"    - {error}")
+    content_cleaner = JSONLContentCleaner(config_manager.config)
+    results = content_cleaner.clean_jsonl_file(input_file, output_file)
+    
+    if results['success']:
+        stats = results['stats']
+        click.echo(f"✅ 内容清洗完成:")
+        click.echo(f"  • 处理文件: {stats['total_files']}")
+        click.echo(f"  • 清洗文件: {stats['files_cleaned']}")
+        click.echo(f"  • 删除注释: {stats['comments_removed']}")
+        click.echo(f"  • 脱敏注释: {stats['comments_desensitized']}")
+        click.echo(f"  • 敏感信息: {stats['sensitive_info_removed']} (涉及 {stats['files_with_sensitive_info']} 个文件)")
+        click.echo(f"  • 输出文件: {output_file}")
+        
+        # 如果是临时文件，清理掉
+        if input_file.name == 'temp_extracted_files.jsonl':
+            input_file.unlink()
+    else:
+        click.echo(f"❌ 内容清洗失败: {results['error']}")
+        raise click.Abort()
 
 
 @main.command()

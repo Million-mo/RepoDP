@@ -244,12 +244,12 @@ class Deduplicator:
         }
     
     def remove_duplicates(self, duplicate_report: Dict[str, Any], keep_strategy: str = 'newest') -> Dict[str, Any]:
-        """删除重复文件"""
+        """从JSONL数据中移除重复文件（仅标记，不删除物理文件）"""
         if keep_strategy not in ['newest', 'oldest', 'first', 'last']:
             keep_strategy = 'newest'
         
-        removed_files = []
-        errors = []
+        removed_file_ids = []
+        kept_file_ids = []
         
         for group in duplicate_report.get('duplicate_list', []):
             files = group['files']
@@ -260,25 +260,88 @@ class Deduplicator:
             keep_file = self._select_file_to_keep(files, keep_strategy)
             files_to_remove = [f for f in files if f != keep_file]
             
-            # 删除重复文件
+            # 记录要保留的文件ID
+            if 'id' in keep_file:
+                kept_file_ids.append(keep_file['id'])
+            elif 'path' in keep_file:
+                kept_file_ids.append(keep_file['path'])
+            
+            # 记录要移除的文件ID（不删除物理文件）
             for file_info in files_to_remove:
-                try:
-                    file_path = Path(file_info['path'])
-                    if file_path.exists():
-                        file_path.unlink()
-                        removed_files.append(file_info)
-                        logger.info(f"已删除重复文件: {file_path}")
-                except Exception as e:
-                    error_msg = f"删除文件失败 {file_info['path']}: {e}"
-                    errors.append(error_msg)
-                    logger.error(error_msg)
+                if 'id' in file_info:
+                    removed_file_ids.append(file_info['id'])
+                elif 'path' in file_info:
+                    removed_file_ids.append(file_info['path'])
+                logger.info(f"标记为重复文件（不删除物理文件）: {file_info.get('path', 'unknown')}")
         
         return {
-            'removed_files': removed_files,
-            'errors': errors,
-            'total_removed': len(removed_files),
-            'total_errors': len(errors)
+            'removed_file_ids': removed_file_ids,
+            'kept_file_ids': kept_file_ids,
+            'total_removed': len(removed_file_ids),
+            'total_kept': len(kept_file_ids),
+            'errors': []
         }
+    
+    def create_deduplicated_jsonl(self, input_file: Path, output_file: Path, duplicate_report: Dict[str, Any], keep_strategy: str = 'newest') -> Dict[str, Any]:
+        """创建去重后的JSONL文件"""
+        import json
+        
+        if keep_strategy not in ['newest', 'oldest', 'first', 'last']:
+            keep_strategy = 'newest'
+        
+        try:
+            # 读取所有记录
+            records = []
+            with open(input_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+            
+            # 获取要移除的文件ID列表
+            removal_result = self.remove_duplicates(duplicate_report, keep_strategy)
+            removed_ids = set(removal_result['removed_file_ids'])
+            
+            # 过滤记录（保留未标记为重复的文件）
+            deduplicated_records = []
+            for record in records:
+                record_id = record.get('id') or record.get('path')
+                if record_id not in removed_ids:
+                    # 添加去重标记
+                    record['deduplication_status'] = 'kept'
+                    record['deduplication_reason'] = 'unique_or_selected'
+                    deduplicated_records.append(record)
+                else:
+                    # 记录被移除的原因（可选：可以保留记录但标记为重复）
+                    record['deduplication_status'] = 'removed'
+                    record['deduplication_reason'] = 'duplicate'
+                    # 可以选择不写入被移除的记录，或者写入但标记状态
+                    # 这里我们选择不写入被移除的记录
+            
+            # 写入去重后的文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                for record in deduplicated_records:
+                    f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
+            
+            logger.info(f"创建去重后的JSONL文件: {output_file}")
+            
+            return {
+                'success': True,
+                'input_file': str(input_file),
+                'output_file': str(output_file),
+                'original_count': len(records),
+                'deduplicated_count': len(deduplicated_records),
+                'removed_count': len(removed_ids),
+                'kept_count': len(deduplicated_records)
+            }
+            
+        except Exception as e:
+            logger.error(f"创建去重JSONL文件失败: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'input_file': str(input_file)
+            }
     
     def _select_file_to_keep(self, files: List[Dict[str, Any]], strategy: str) -> Dict[str, Any]:
         """选择要保留的文件"""

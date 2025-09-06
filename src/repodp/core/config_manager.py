@@ -112,6 +112,14 @@ class ConfigManager:
                 ConfigSchema("cleanup_rules", dict, True, {}, "清理规则"),
                 ConfigSchema("backup_enabled", bool, True, True, "启用备份"),
                 ConfigSchema("backup_dir", str, False, "data/backups", "备份目录", self._validate_path),
+            ],
+            'jsonl_cleaning': [
+                ConfigSchema("enable_comment_cleaning", bool, True, True, "启用注释清洗"),
+                ConfigSchema("enable_desensitization", bool, True, True, "启用脱敏处理"),
+                ConfigSchema("remove_invalid_comments", bool, True, True, "删除无效注释"),
+                ConfigSchema("preserve_copyright_structure", bool, True, True, "保留版权结构"),
+                ConfigSchema("sensitive_patterns", list, True, ["email", "phone", "employee_id", "id_card", "ip_address", "url", "datetime", "person_name", "organization"], "敏感信息模式"),
+                ConfigSchema("invalid_comment_patterns", list, True, ["todo", "fixme", "version_info", "personal_signature", "change_history"], "无效注释模式"),
             ]
         }
     
