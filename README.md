@@ -1,6 +1,6 @@
-# RopeDP - 代码仓数据处理工具
+# RepoDP - 代码仓数据处理工具
 
-RopeDP 是一个专门针对代码仓库的数据处理工具，支持多代码仓管理、文件内容提取、清洗、去重和数据分析。
+RepoDP 是一个专门针对代码仓库的数据处理工具，支持多代码仓管理、文件内容提取、清洗、去重和数据分析。
 
 ## 功能特性
 
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 ### 方式2: 使用Python模块
 ```bash
 # 设置环境变量
-export PYTHONPATH=/path/to/RopeDP/src:$PYTHONPATH
+export PYTHONPATH=/path/to/RepoDP/src:$PYTHONPATH
 
 # 运行命令
 python -m repodp add-repo <repo-url> <repo-name>
@@ -72,7 +72,7 @@ python -m repodp extract <repo-name>
 ## 项目结构
 
 ```
-RopeDP/
+RepoDP/
 ├── src/
 │   ├── core/           # 核心功能模块
 │   ├── extractors/     # 文件提取器
@@ -83,4 +83,3 @@ RopeDP/
 ├── data/               # 数据存储
 └── tests/              # 测试文件
 ```
-
