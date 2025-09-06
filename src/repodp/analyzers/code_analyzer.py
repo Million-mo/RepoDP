@@ -17,6 +17,12 @@ class CodeAnalyzer:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.analysis_config = config.get('analysis', {})
+        
+        # 从配置中获取分析选项
+        self.language_detection = self.analysis_config.get('language_detection', True)
+        self.complexity_analysis = self.analysis_config.get('complexity_analysis', True)
+        self.dependency_analysis = self.analysis_config.get('dependency_analysis', True)
+        self.metrics_calculation = self.analysis_config.get('metrics_calculation', True)
     
     def analyze_repository(self, file_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """分析整个代码仓库"""
@@ -66,11 +72,15 @@ class CodeAnalyzer:
         # 分析代码质量
         quality_analysis = self._analyze_code_quality(files, language)
         
-        # 分析复杂度
-        complexity_analysis = self._analyze_complexity(files, language)
+        # 分析复杂度（如果启用）
+        complexity_analysis = {}
+        if self.complexity_analysis:
+            complexity_analysis = self._analyze_complexity(files, language)
         
-        # 分析依赖关系
-        dependency_analysis = self._analyze_dependencies(files, language)
+        # 分析依赖关系（如果启用）
+        dependency_analysis = {}
+        if self.dependency_analysis:
+            dependency_analysis = self._analyze_dependencies(files, language)
         
         return {
             'basic_stats': {

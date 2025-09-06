@@ -53,7 +53,7 @@ RopeDP 是一个专门针对代码仓库的数据处理工具，支持多代码�
 
 ```
 RopeDP/
-├── src/ropedp/                 # 核心源代码
+├── src/repodp/                 # 核心源代码
 │   ├── core/                   # 核心功能模块
 │   │   ├── repository_manager.py  # 代码仓管理
 │   │   └── config_manager.py      # 配置管理
@@ -125,23 +125,23 @@ python quick_start.py
 ### 3. 基本使用
 ```bash
 # 添加代码仓库
-python -m ropedp add-repo <仓库URL> <仓库名称>
+python -m repodp add-repo <仓库URL> <仓库名称>
 
 # 提取文件内容 (默认JSONL格式)
-python -m ropedp extract <仓库名称>
+python -m repodp extract <仓库名称>
 
 # 提取文件内容 (指定格式)
-python -m ropedp extract <仓库名称> --format jsonl
-python -m ropedp extract <仓库名称> --format json
+python -m repodp extract <仓库名称> --format jsonl
+python -m repodp extract <仓库名称> --format json
 
 # 清洗文件
-python -m ropedp clean <仓库名称>
+python -m repodp clean <仓库名称>
 
 # 去重分析
-python -m ropedp deduplicate <仓库名称>
+python -m repodp deduplicate <仓库名称>
 
 # 数据分析
-python -m ropedp analyze <仓库名称>
+python -m repodp analyze <仓库名称>
 ```
 
 ### 4. JSONL格式优势
@@ -153,13 +153,13 @@ python -m ropedp analyze <仓库名称>
 ### 4. 配置管理
 ```bash
 # 查看配置
-python -m ropedp list-config
+python -m repodp list-config
 
 # 设置配置
-python -m ropedp set-config <键> <值>
+python -m repodp set-config <键> <值>
 
 # 导出配置
-python -m ropedp export-config config.yaml
+python -m repodp export-config config.yaml
 ```
 
 ## 配置选项

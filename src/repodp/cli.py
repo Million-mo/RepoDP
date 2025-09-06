@@ -42,7 +42,7 @@ def load_extracted_files(name: str) -> List[Dict[str, Any]]:
         click.echo(f"📄 从JSON文件加载: {extracted_file_json}")
     else:
         click.echo(f"❌ 提取文件不存在: {extracted_file_jsonl} 或 {extracted_file_json}")
-        click.echo("请先运行 'ropedp extract' 命令")
+        click.echo("请先运行 'repodp extract' 命令")
         raise click.Abort()
     
     return file_list
@@ -68,19 +68,31 @@ def main(ctx, verbose, config):
 
 
 @main.command()
-@click.argument('url')
+@click.argument('url_or_path')
 @click.argument('name')
 @click.option('--branch', '-b', default='main', help='分支名称')
+@click.option('--local', '-l', is_flag=True, help='指定为本地仓库路径')
 @click.pass_context
-def add_repo(ctx, url, name, branch):
-    """添加新的代码仓库"""
+def add_repo(ctx, url_or_path, name, branch, local):
+    """添加新的代码仓库（支持远程URL或本地路径）"""
     repo_manager = ctx.obj['repo_manager']
     
-    if repo_manager.add_repository(name, url, branch):
-        click.echo(f"✅ 成功添加仓库: {name}")
+    # 检测是否为本地路径
+    path = Path(url_or_path)
+    if local or (path.exists() and path.is_dir()):
+        # 本地仓库
+        if repo_manager.add_local_repository(name, url_or_path, branch):
+            click.echo(f"✅ 成功添加本地仓库: {name}")
+        else:
+            click.echo(f"❌ 添加本地仓库失败: {name}")
+            raise click.Abort()
     else:
-        click.echo(f"❌ 添加仓库失败: {name}")
-        raise click.Abort()
+        # 远程仓库
+        if repo_manager.add_repository(name, url_or_path, branch):
+            click.echo(f"✅ 成功添加远程仓库: {name}")
+        else:
+            click.echo(f"❌ 添加远程仓库失败: {name}")
+            raise click.Abort()
 
 
 @main.command()
@@ -362,6 +374,10 @@ def set_config(ctx, key, value):
             value = int(value)
         elif '.' in value and value.replace('.', '').isdigit():
             value = float(value)
+        elif value.startswith('[') and value.endswith(']'):
+            # 解析列表
+            import ast
+            value = ast.literal_eval(value)
         
         config_manager.set(key, value)
         click.echo(f"✅ 配置已设置: {key} = {value}")
@@ -424,6 +440,125 @@ def import_config(ctx, file):
     
     config_manager.import_config(file)
     click.echo(f"✅ 配置已从 {file} 导入")
+
+
+@main.command()
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--no-comments', is_flag=True, help='不包含注释')
+@click.pass_context
+def generate_config(ctx, output, no_comments):
+    """生成配置模板"""
+    config_manager = ctx.obj['config_manager']
+    
+    template = config_manager.generate_config_template(include_comments=not no_comments)
+    
+    if output:
+        with open(output, 'w', encoding='utf-8') as f:
+            f.write(template)
+        click.echo(f"✅ 配置模板已生成: {output}")
+    else:
+        click.echo(template)
+
+
+@main.command()
+@click.argument('file', type=click.Path(exists=True))
+@click.pass_context
+def validate_config(ctx, file):
+    """验证配置文件"""
+    config_manager = ctx.obj['config_manager']
+    
+    errors = config_manager.validate_config_file(file)
+    
+    if not errors:
+        click.echo("✅ 配置文件验证通过")
+    else:
+        click.echo("❌ 配置文件验证失败:")
+        for error in errors:
+            click.echo(f"  • {error}")
+
+
+@main.command()
+@click.option('--section', '-s', help='指定配置节')
+@click.pass_context
+def config_info(ctx, section):
+    """显示配置信息"""
+    config_manager = ctx.obj['config_manager']
+    
+    info = config_manager.get_config_info()
+    
+    if section:
+        if section in info:
+            click.echo(f"📋 {section.upper()} 配置信息:")
+            for key, details in info[section].items():
+                click.echo(f"  {key}:")
+                click.echo(f"    类型: {details['type']}")
+                click.echo(f"    必需: {details['required']}")
+                click.echo(f"    默认值: {details['default']}")
+                click.echo(f"    当前值: {details['current_value']}")
+                click.echo(f"    描述: {details['description']}")
+                if details['env_var']:
+                    click.echo(f"    环境变量: {details['env_var']}")
+                click.echo()
+        else:
+            click.echo(f"❌ 配置节不存在: {section}")
+    else:
+        for section_name, section_info in info.items():
+            click.echo(f"📋 {section_name.upper()}:")
+            for key, details in section_info.items():
+                click.echo(f"  {key}: {details['current_value']} ({details['type']})")
+            click.echo()
+
+
+@main.command()
+@click.option('--interactive', '-i', is_flag=True, help='交互式配置向导')
+@click.pass_context
+def config_wizard(ctx, interactive):
+    """配置向导"""
+    config_manager = ctx.obj['config_manager']
+    
+    if interactive:
+        click.echo("🔧 RopeDP 配置向导")
+        click.echo("=" * 50)
+        
+        # 文件提取配置
+        click.echo("\n📁 文件提取配置:")
+        file_types = click.prompt("支持的文件类型 (用逗号分隔)", 
+                                default=",".join(config_manager.get('extraction.file_types', [])))
+        config_manager.set('extraction.file_types', [t.strip() for t in file_types.split(',')])
+        
+        max_size = click.prompt("最大文件大小 (MB)", 
+                               default=config_manager.get('extraction.max_file_size', 10485760) // 1024 // 1024)
+        config_manager.set('extraction.max_file_size', max_size * 1024 * 1024)
+        
+        # 性能配置
+        click.echo("\n⚡ 性能配置:")
+        workers = click.prompt("最大并发数", 
+                              default=config_manager.get('performance.max_workers', 4))
+        config_manager.set('performance.max_workers', workers)
+        
+        memory = click.prompt("内存限制 (MB)", 
+                             default=config_manager.get('performance.memory_limit', 1024))
+        config_manager.set('performance.memory_limit', memory)
+        
+        # 日志配置
+        click.echo("\n📝 日志配置:")
+        log_level = click.prompt("日志级别", 
+                                default=config_manager.get('logging.level', 'INFO'),
+                                type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']))
+        config_manager.set('logging.level', log_level)
+        
+        click.echo("\n✅ 配置向导完成!")
+    else:
+        # 显示当前配置摘要
+        click.echo("📋 当前配置摘要:")
+        click.echo("=" * 50)
+        
+        sections = ['extraction', 'performance', 'logging', 'analysis']
+        for section in sections:
+            if section in config_manager.config:
+                click.echo(f"\n{section.upper()}:")
+                for key, value in config_manager.config[section].items():
+                    click.echo(f"  {key}: {value}")
 
 
 if __name__ == '__main__':

@@ -22,23 +22,23 @@ pip install -r requirements.txt
 ### 方式1: 使用启动脚本 (推荐)
 ```bash
 # 添加代码仓
-./ropedp add-repo <repo-url> <repo-name>
+./repodp add-repo <repo-url> <repo-name>
 
 # 提取文件内容 (默认JSONL格式)
-./ropedp extract <repo-name>
+./repodp extract <repo-name>
 
 # 提取文件内容 (指定格式)
-./ropedp extract <repo-name> --format jsonl
-./ropedp extract <repo-name> --format json
+./repodp extract <repo-name> --format jsonl
+./repodp extract <repo-name> --format json
 
 # 清洗文件
-./ropedp clean <repo-name>
+./repodp clean <repo-name>
 
 # 去重分析
-./ropedp deduplicate <repo-name>
+./repodp deduplicate <repo-name>
 
 # 数据分析
-./ropedp analyze <repo-name>
+./repodp analyze <repo-name>
 ```
 
 ### 方式2: 使用Python模块
@@ -47,8 +47,8 @@ pip install -r requirements.txt
 export PYTHONPATH=/path/to/RopeDP/src:$PYTHONPATH
 
 # 运行命令
-python -m ropedp add-repo <repo-url> <repo-name>
-python -m ropedp extract <repo-name>
+python -m repodp add-repo <repo-url> <repo-name>
+python -m repodp extract <repo-name>
 ```
 
 ## 数据格式

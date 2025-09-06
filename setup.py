@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="ropedp",
+    name="repodp",
     version="0.1.0",
     description="代码仓数据处理工具",
     author="Your Name",
@@ -22,7 +22,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ropedp=ropedp.cli:main",
+            "repodp=repodp.cli:main",
         ],
     },
     python_requires=">=3.8",

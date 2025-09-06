@@ -16,7 +16,7 @@ install-dev:  ## 安装开发依赖
 	pip install pytest pytest-cov black flake8 mypy
 
 test:  ## 运行测试
-	python -m pytest tests/ -v --cov=src/ropedp --cov-report=html
+	python -m pytest tests/ -v --cov=src/repodp --cov-report=html
 
 test-basic:  ## 运行基本测试
 	python tests/test_basic.py
@@ -34,7 +34,7 @@ clean:  ## 清理临时文件
 
 lint:  ## 代码检查
 	flake8 src/ tests/
-	mypy src/ropedp/
+	mypy src/repodp/
 
 format:  ## 代码格式化
 	black src/ tests/

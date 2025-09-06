@@ -17,9 +17,10 @@ class FileCleaner:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.cleanup_rules = config.get('cleanup_rules', {})
-        self.backup_enabled = config.get('backup_enabled', True)
-        self.backup_dir = Path(config.get('backup_dir', 'data/backups'))
+        self.file_cleaning_config = config.get('file_cleaning', {})
+        self.cleanup_rules = self.file_cleaning_config.get('cleanup_rules', {})
+        self.backup_enabled = self.file_cleaning_config.get('backup_enabled', True)
+        self.backup_dir = Path(self.file_cleaning_config.get('backup_dir', 'data/backups'))
         
         # 创建备份目录
         if self.backup_enabled:

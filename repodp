@@ -8,5 +8,5 @@ SRC_DIR="$SCRIPT_DIR/src"
 # 设置Python路径
 export PYTHONPATH="$SRC_DIR:$PYTHONPATH"
 
-# 执行ropedp命令
-python -m ropedp "$@"
+# 执行repodp命令
+python -m repodp "$@"

@@ -9,7 +9,7 @@ from pathlib import Path
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from ropedp.utils import JSONLUtils
+from repodp.utils import JSONLUtils
 
 
 def main():

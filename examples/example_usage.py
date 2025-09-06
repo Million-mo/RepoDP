@@ -9,11 +9,11 @@ from pathlib import Path
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from ropedp.core import RepositoryManager, ConfigManager
-from ropedp.extractors import FileExtractor, CodeExtractor, TextExtractor
-from ropedp.cleaners import FileCleaner, ContentCleaner, Deduplicator
-from ropedp.analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
-from ropedp.utils import JSONLUtils
+from repodp.core import RepositoryManager, ConfigManager
+from repodp.extractors import FileExtractor, CodeExtractor, TextExtractor
+from repodp.cleaners import FileCleaner, ContentCleaner, Deduplicator
+from repodp.analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
+from repodp.utils import JSONLUtils
 
 
 def main():

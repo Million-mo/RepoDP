@@ -16,40 +16,40 @@ python quick_start.py
 #### 步骤1: 添加代码仓库
 ```bash
 # 添加一个GitHub仓库
-./ropedp add-repo https://github.com/octocat/Hello-World.git hello-world
+./repodp add-repo https://github.com/octocat/Hello-World.git hello-world
 
 # 查看已添加的仓库
-./ropedp list-repos
+./repodp list-repos
 ```
 
 #### 步骤2: 提取文件内容 (JSONL格式)
 ```bash
 # 提取文件内容 (默认JSONL格式)
-./ropedp extract hello-world
+./repodp extract hello-world
 
 # 或者指定JSON格式
-./ropedp extract hello-world --format json
+./repodp extract hello-world --format json
 ```
 
 #### 步骤3: 清洗文件
 ```bash
 # 清洗文件结构和内容
-./ropedp clean hello-world
+./repodp clean hello-world
 ```
 
 #### 步骤4: 去重分析
 ```bash
 # 分析重复文件
-./ropedp deduplicate hello-world
+./repodp deduplicate hello-world
 ```
 
 #### 步骤5: 数据分析
 ```bash
 # 生成分析报告
-./ropedp analyze hello-world
+./repodp analyze hello-world
 
 # 指定报告格式
-./ropedp analyze hello-world --format html
+./repodp analyze hello-world --format html
 ```
 
 ### 3. 输出文件说明
@@ -73,25 +73,25 @@ python quick_start.py
 
 #### 查看配置
 ```bash
-./ropedp list-config
+./repodp list-config
 ```
 
 #### 设置配置
 ```bash
 # 设置最大文件大小
-./ropedp set-config extraction.max_file_size 20971520  # 20MB
+./repodp set-config extraction.max_file_size 20971520  # 20MB
 
 # 设置排除的目录
-./ropedp set-config extraction.exclude_dirs '["node_modules", ".git"]'
+./repodp set-config extraction.exclude_dirs '["node_modules", ".git"]'
 ```
 
 #### 导出/导入配置
 ```bash
 # 导出配置
-./ropedp export-config my_config.yaml
+./repodp export-config my_config.yaml
 
 # 导入配置
-./ropedp import-config my_config.yaml
+./repodp import-config my_config.yaml
 ```
 
 ### 5. 高级功能
@@ -99,25 +99,25 @@ python quick_start.py
 #### 批量处理多个仓库
 ```bash
 # 添加多个仓库
-./ropedp add-repo https://github.com/user/repo1.git repo1
-./ropedp add-repo https://github.com/user/repo2.git repo2
+./repodp add-repo https://github.com/user/repo1.git repo1
+./repodp add-repo https://github.com/user/repo2.git repo2
 
 # 批量提取
-./ropedp extract repo1
-./ropedp extract repo2
+./repodp extract repo1
+./repodp extract repo2
 
 # 批量分析
-./ropedp analyze repo1
-./ropedp analyze repo2
+./repodp analyze repo1
+./repodp analyze repo2
 ```
 
 #### 自定义输出目录
 ```bash
 # 指定输出目录
-./ropedp extract hello-world --output /path/to/output
+./repodp extract hello-world --output /path/to/output
 
 # 指定报告输出目录
-./ropedp analyze hello-world --output /path/to/reports
+./repodp analyze hello-world --output /path/to/reports
 ```
 
 ### 6. 示例和测试
@@ -144,14 +144,14 @@ python tests/test_basic.py
 
 #### 常见问题
 
-**问题1**: `No module named ropedp`
+**问题1**: `No module named repodp`
 ```bash
 # 解决方案: 使用启动脚本
-./ropedp --help
+./repodp --help
 
 # 或者设置PYTHONPATH
 export PYTHONPATH=/path/to/RopeDP/src:$PYTHONPATH
-python -m ropedp --help
+python -m repodp --help
 ```
 
 **问题2**: 仓库克隆失败
@@ -167,10 +167,10 @@ git config --global user.email
 **问题3**: 内存不足
 ```bash
 # 使用JSONL格式 (默认)
-./ropedp extract <repo-name> --format jsonl
+./repodp extract <repo-name> --format jsonl
 
 # 调整配置
-./ropedp set-config extraction.max_file_size 5242880  # 5MB
+./repodp set-config extraction.max_file_size 5242880  # 5MB
 ```
 
 ### 8. 性能优化
@@ -178,13 +178,13 @@ git config --global user.email
 #### 大仓库处理
 ```bash
 # 增加排除目录
-./ropedp set-config extraction.exclude_dirs '["node_modules", ".git", "build", "dist", "target"]'
+./repodp set-config extraction.exclude_dirs '["node_modules", ".git", "build", "dist", "target"]'
 
 # 限制文件大小
-./ropedp set-config extraction.max_file_size 10485760  # 10MB
+./repodp set-config extraction.max_file_size 10485760  # 10MB
 
 # 限制文件类型
-./ropedp set-config extraction.file_types '[".py", ".js", ".ts", ".java"]'
+./repodp set-config extraction.file_types '[".py", ".js", ".ts", ".java"]'
 ```
 
 #### 内存优化
@@ -196,7 +196,7 @@ git config --global user.email
 
 #### 读取JSONL文件
 ```python
-from ropedp.utils import JSONLUtils
+from repodp.utils import JSONLUtils
 
 # 读取所有数据
 data = JSONLUtils.read_jsonl_all('data/extracted/repo/extracted_files.jsonl')
@@ -224,9 +224,9 @@ for record in JSONLUtils.read_jsonl('data/extracted/repo/extracted_files.jsonl')
 
 ```bash
 # 快速开始
-./ropedp add-repo <your-repo-url> <repo-name>
-./ropedp extract <repo-name>
-./ropedp analyze <repo-name>
+./repodp add-repo <your-repo-url> <repo-name>
+./repodp extract <repo-name>
+./repodp analyze <repo-name>
 ```
 
 祝您使用愉快！🚀

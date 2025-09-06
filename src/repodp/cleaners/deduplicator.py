@@ -21,6 +21,27 @@ class Deduplicator:
         self.hash_algorithm = self.dedup_config.get('hash_algorithm', 'sha256')
         self.similarity_threshold = self.dedup_config.get('similarity_threshold', 0.95)
         self.min_file_size = self.dedup_config.get('min_file_size', 100)
+        
+        # 验证配置
+        self._validate_config()
+    
+    def _validate_config(self):
+        """验证配置"""
+        # 验证哈希算法
+        valid_algorithms = ['md5', 'sha1', 'sha256', 'sha512']
+        if self.hash_algorithm not in valid_algorithms:
+            logger.warning(f"无效的哈希算法: {self.hash_algorithm}，使用默认值 sha256")
+            self.hash_algorithm = 'sha256'
+        
+        # 验证相似度阈值
+        if not (0 <= self.similarity_threshold <= 1):
+            logger.warning(f"相似度阈值必须在0-1之间: {self.similarity_threshold}，使用默认值 0.95")
+            self.similarity_threshold = 0.95
+        
+        # 验证最小文件大小
+        if self.min_file_size < 0:
+            logger.warning(f"最小文件大小不能为负数: {self.min_file_size}，使用默认值 100")
+            self.min_file_size = 100
     
     def find_duplicates(self, file_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         """查找重复文件"""
