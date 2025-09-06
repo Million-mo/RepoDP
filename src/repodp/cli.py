@@ -479,26 +479,58 @@ def clean(ctx, name, output, in_place):
 @click.argument('name')
 @click.option('--strategy', type=click.Choice(['newest', 'oldest', 'first', 'last']), 
               default='newest', help='保留策略')
+@click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
+@click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
 @click.pass_context
-def deduplicate(ctx, name, strategy):
-    """去重分析"""
+def deduplicate(ctx, name, strategy, output, in_place):
+    """去重分析并处理JSONL文件"""
     repo_manager = ctx.obj['repo_manager']
     config_manager = ctx.obj['config_manager']
     
-    # 检查仓库是否存在
-    repo_info = repo_manager.get_repository(name)
-    if not repo_info:
-        click.echo(f"❌ 仓库不存在: {name}")
+    # 检查提取的文件是否存在
+    extracted_file_jsonl = Path('data/extracted') / name / 'extracted_files.jsonl'
+    extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
+    
+    input_file = None
+    if extracted_file_jsonl.exists():
+        input_file = extracted_file_jsonl
+        click.echo(f"📄 找到JSONL文件: {extracted_file_jsonl}")
+    elif extracted_file_json.exists():
+        # 如果是JSON格式，先转换为JSONL处理
+        click.echo(f"📄 找到JSON文件，转换为JSONL格式处理: {extracted_file_json}")
+        import json
+        with open(extracted_file_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 创建临时JSONL文件
+        input_file = Path('data/extracted') / name / 'temp_extracted_files.jsonl'
+        with open(input_file, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False, default=str) + '\n')
+    else:
+        click.echo(f"❌ 未找到提取文件: {extracted_file_jsonl} 或 {extracted_file_json}")
+        click.echo("请先运行 'repodp extract' 命令提取文件")
         raise click.Abort()
     
-    # 加载提取的文件
-    file_list = load_extracted_files(name)
+    # 设置输出文件路径
+    if in_place:
+        # 直接覆盖原文件
+        output_file = input_file
+    elif output:
+        output_file = Path(output)
+    else:
+        output_file = input_file.parent / f"{input_file.stem}_deduplicated{input_file.suffix}"
+    
+    # 确保输出目录存在
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
     # 去重分析
     click.echo(f"🔍 开始去重分析: {name}")
     
     deduplicator = Deduplicator(config_manager.config)
-    duplicate_report = deduplicator.find_duplicates(file_list)
+    
+    # 先分析重复情况
+    duplicate_report = deduplicator.analyze_jsonl_duplicates(input_file)
     
     click.echo(f"✅ 去重分析完成:")
     click.echo(f"  • 检查文件: {duplicate_report['total_files_checked']}")
@@ -506,13 +538,27 @@ def deduplicate(ctx, name, strategy):
     click.echo(f"  • 相似组: {duplicate_report['similar_groups']}")
     click.echo(f"  • 可节省空间: {duplicate_report['total_duplicate_size'] / 1024 / 1024:.1f} MB")
     
-    # 询问是否删除重复文件
+    # 如果有重复文件，询问是否处理
     if duplicate_report['duplicate_groups'] > 0:
-        if click.confirm(f"发现 {duplicate_report['duplicate_groups']} 个重复组，是否删除重复文件？"):
-            removal_results = deduplicator.remove_duplicates(duplicate_report, strategy)
-            click.echo(f"✅ 删除完成:")
-            click.echo(f"  • 删除文件: {removal_results['total_removed']}")
-            click.echo(f"  • 错误: {removal_results['total_errors']}")
+        if click.confirm(f"发现 {duplicate_report['duplicate_groups']} 个重复组，是否创建去重后的JSONL文件？"):
+            # 创建去重后的JSONL文件
+            result = deduplicator.create_deduplicated_jsonl(input_file, output_file, duplicate_report, strategy)
+            
+            if result['success']:
+                click.echo(f"✅ 去重处理完成:")
+                click.echo(f"  • 原始文件数: {result['original_count']}")
+                click.echo(f"  • 去重后文件数: {result['deduplicated_count']}")
+                click.echo(f"  • 移除文件数: {result['removed_count']}")
+                click.echo(f"  • 输出文件: {output_file}")
+                
+                # 如果是临时文件，清理掉
+                if input_file.name == 'temp_extracted_files.jsonl':
+                    input_file.unlink()
+            else:
+                click.echo(f"❌ 去重处理失败: {result['error']}")
+                raise click.Abort()
+    else:
+        click.echo("ℹ️  没有发现重复文件，无需处理")
 
 
 @main.command()

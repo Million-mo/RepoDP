@@ -4,7 +4,7 @@
 
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple, Set
+from typing import Dict, Any, List
 from collections import defaultdict
 import logging
 from tqdm import tqdm
@@ -44,7 +44,34 @@ class Deduplicator:
             self.min_file_size = 100
     
     def find_duplicates(self, file_list: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """查找重复文件"""
+        """查找重复文件（已弃用，请使用analyze_jsonl_duplicates）"""
+        logger.warning("find_duplicates方法已弃用，请使用analyze_jsonl_duplicates方法")
+        return self.analyze_jsonl_duplicates_from_list(file_list)
+    
+    def analyze_jsonl_duplicates(self, input_file: Path) -> Dict[str, Any]:
+        """分析JSONL文件中的重复文件"""
+        if not input_file.exists():
+            logger.error(f"输入文件不存在: {input_file}")
+            return {}
+        
+        try:
+            # 读取JSONL文件
+            import json
+            file_list = []
+            with open(input_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        file_list.append(json.loads(line))
+            
+            return self.analyze_jsonl_duplicates_from_list(file_list)
+            
+        except Exception as e:
+            logger.error(f"分析JSONL重复文件失败: {e}")
+            return {}
+    
+    def analyze_jsonl_duplicates_from_list(self, file_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """从文件列表中分析重复文件"""
         logger.info(f"开始查找重复文件，共 {len(file_list)} 个文件")
         
         # 过滤文件
@@ -73,12 +100,18 @@ class Deduplicator:
         filtered = []
         
         for file_info in file_list:
-            # 检查文件大小
-            if file_info.get('size', 0) < self.min_file_size:
-                continue
-            
             # 检查是否为二进制文件
             if file_info.get('is_binary', False):
+                continue
+            
+            # 检查内容是否存在
+            content = file_info.get('content', '')
+            if not content:
+                continue
+            
+            # 检查内容大小
+            content_size = len(content.encode('utf-8'))
+            if content_size < self.min_file_size:
                 continue
             
             # 检查文件扩展名
@@ -86,6 +119,8 @@ class Deduplicator:
             if extension in ['.exe', '.dll', '.so', '.dylib', '.bin']:
                 continue
             
+            # 更新文件大小信息
+            file_info['size'] = content_size
             filtered.append(file_info)
         
         return filtered
@@ -355,4 +390,39 @@ class Deduplicator:
             return files[-1]
         else:
             return files[0]
+    
+    def deduplicate_jsonl_file(self, input_file: Path, output_file: Path, keep_strategy: str = 'newest') -> Dict[str, Any]:
+        """直接对JSONL文件进行去重处理"""
+        if not input_file.exists():
+            logger.error(f"输入文件不存在: {input_file}")
+            return {'success': False, 'error': '输入文件不存在'}
+        
+        try:
+            # 分析重复情况
+            duplicate_report = self.analyze_jsonl_duplicates(input_file)
+            
+            if duplicate_report.get('duplicate_groups', 0) == 0:
+                # 没有重复文件，直接复制
+                import shutil
+                shutil.copy2(input_file, output_file)
+                return {
+                    'success': True,
+                    'input_file': str(input_file),
+                    'output_file': str(output_file),
+                    'original_count': duplicate_report.get('total_files_checked', 0),
+                    'deduplicated_count': duplicate_report.get('total_files_checked', 0),
+                    'removed_count': 0,
+                    'kept_count': duplicate_report.get('total_files_checked', 0)
+                }
+            
+            # 创建去重后的文件
+            return self.create_deduplicated_jsonl(input_file, output_file, duplicate_report, keep_strategy)
+            
+        except Exception as e:
+            logger.error(f"去重JSONL文件失败: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'input_file': str(input_file)
+            }
 
