@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 
 from .core import RepositoryManager, ConfigManager
 from .extractors import FileExtractor, CodeExtractor, TextExtractor
-from .cleaners import ContentCleaner, Deduplicator, JSONLContentCleaner
+from .cleaners import Deduplicator, JSONLContentCleaner, FileMetricsCleaner
 from .analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
 
 # 配置日志
@@ -481,81 +481,6 @@ def clean(ctx, name, output, in_place):
 
 @main.command()
 @click.argument('name')
-@click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
-@click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
-@click.pass_context
-def clean(ctx, name, output, in_place):
-    """清洗JSONL文件内容（注释脱敏、敏感信息处理）"""
-    repo_manager = ctx.obj['repo_manager']
-    config_manager = ctx.obj['config_manager']
-    
-    # 检查提取的文件是否存在
-    extracted_file_jsonl = Path('data/extracted') / name / 'extracted_files.jsonl'
-    extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
-    
-    input_file = None
-    if extracted_file_jsonl.exists():
-        input_file = extracted_file_jsonl
-        click.echo(f"📄 找到JSONL文件: {extracted_file_jsonl}")
-    elif extracted_file_json.exists():
-        # 如果是JSON格式，先转换为JSONL处理
-        click.echo(f"📄 找到JSON文件，转换为JSONL格式处理: {extracted_file_json}")
-        import json
-        with open(extracted_file_json, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        # 创建临时JSONL文件
-        input_file = Path('data/extracted') / name / 'temp_extracted_files.jsonl'
-        with open(input_file, 'w', encoding='utf-8') as f:
-            for item in data:
-                f.write(json.dumps(item, ensure_ascii=False, default=str) + '\n')
-    else:
-        click.echo(f"❌ 未找到提取文件: {extracted_file_jsonl} 或 {extracted_file_json}")
-        click.echo("请先运行 'repodp extract' 命令提取文件")
-        raise click.Abort()
-    
-    # 设置输出文件路径
-    if in_place:
-        # 直接覆盖原文件，先创建备份
-        backup_file = input_file.with_suffix('.jsonl.backup')
-        import shutil
-        shutil.copy2(input_file, backup_file)
-        output_file = input_file
-        click.echo(f"💾 已创建备份文件: {backup_file}")
-    elif output:
-        output_file = Path(output)
-    else:
-        output_file = input_file.parent / f"{input_file.stem}_cleaned{input_file.suffix}"
-    
-    # 确保输出目录存在
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    # 创建内容清洗器并执行清洗
-    click.echo(f"🧹 开始清洗JSONL内容: {name}")
-    
-    content_cleaner = JSONLContentCleaner(config_manager.config)
-    results = content_cleaner.clean_jsonl_file(input_file, output_file)
-    
-    if results['success']:
-        stats = results['stats']
-        click.echo(f"✅ 内容清洗完成:")
-        click.echo(f"  • 处理文件: {stats['total_files']}")
-        click.echo(f"  • 清洗文件: {stats['files_cleaned']}")
-        click.echo(f"  • 删除注释: {stats['comments_removed']}")
-        click.echo(f"  • 脱敏注释: {stats['comments_desensitized']}")
-        click.echo(f"  • 敏感信息: {stats['sensitive_info_removed']} (涉及 {stats['files_with_sensitive_info']} 个文件)")
-        click.echo(f"  • 输出文件: {output_file}")
-        
-        # 如果是临时文件，清理掉
-        if input_file.name == 'temp_extracted_files.jsonl':
-            input_file.unlink()
-    else:
-        click.echo(f"❌ 内容清洗失败: {results['error']}")
-        raise click.Abort()
-
-
-@main.command()
-@click.argument('name')
 @click.option('--strategy', type=click.Choice(['newest', 'oldest', 'first', 'last']), 
               default='newest', help='保留策略')
 @click.pass_context
@@ -592,6 +517,187 @@ def deduplicate(ctx, name, strategy):
             click.echo(f"✅ 删除完成:")
             click.echo(f"  • 删除文件: {removal_results['total_removed']}")
             click.echo(f"  • 错误: {removal_results['total_errors']}")
+
+
+@main.command()
+@click.argument('name')
+@click.option('--thresholds', '-t', help='阈值配置文件路径 (JSON格式)')
+@click.option('--dry-run', '-d', is_flag=True, help='仅分析，不执行清洗操作')
+@click.option('--backup/--no-backup', default=True, help='是否创建备份')
+@click.option('--verbose', '-v', is_flag=True, help='显示详细的规则违规信息')
+@click.option('--max-files', '-m', type=int, default=10, help='显示违规文件的最大数量')
+@click.pass_context
+def clean_metrics(ctx, name, thresholds, dry_run, backup, verbose, max_files):
+    """基于文件指标的清洗（文件大小、行数、注释比例等）"""
+    repo_manager = ctx.obj['repo_manager']
+    config_manager = ctx.obj['config_manager']
+    
+    # 检查仓库是否存在
+    repo_info = repo_manager.get_repository(name)
+    if not repo_info:
+        click.echo(f"❌ 仓库不存在: {name}")
+        raise click.Abort()
+    
+    repo_path = Path(repo_info['path'])
+    if not repo_path.exists():
+        click.echo(f"❌ 仓库路径不存在: {repo_path}")
+        raise click.Abort()
+    
+    # 加载阈值配置
+    if thresholds:
+        import json
+        try:
+            with open(thresholds, 'r', encoding='utf-8') as f:
+                threshold_config = json.load(f)
+            config_manager.set('file_metrics_cleaning.thresholds', threshold_config)
+        except Exception as e:
+            click.echo(f"❌ 加载阈值配置失败: {e}")
+            raise click.Abort()
+    
+    # 设置备份选项
+    config_manager.set('file_metrics_cleaning.backup_enabled', backup)
+    
+    # 执行文件指标清洗
+    click.echo(f"📊 开始文件指标清洗: {name}")
+    if dry_run:
+        click.echo("🔍 干运行模式 - 仅分析，不执行清洗操作")
+    
+    file_metrics_cleaner = FileMetricsCleaner(config_manager.config)
+    
+    if dry_run:
+        # 仅分析模式
+        results = file_metrics_cleaner.analyze_metrics(repo_path, name)
+    else:
+        # 完整清洗模式
+        results = file_metrics_cleaner.clean_by_metrics(repo_path, name)
+    
+    # 显示结果
+    click.echo(f"✅ 文件指标分析完成:")
+    click.echo(f"  • 总文件数: {results['total_files']}")
+    click.echo(f"  • 清洗文件: {results['cleaned_files']}")
+    click.echo(f"  • 删除文件: {results['removed_files']}")
+    click.echo(f"  • 忽略文件: {results['ignored_files']}")
+    
+    if results['errors']:
+        click.echo(f"  • 错误: {len(results['errors'])} 个")
+        for error in results['errors'][:5]:  # 只显示前5个错误
+            click.echo(f"    - {error}")
+    
+    # 显示指标摘要
+    metrics_summary = results.get('metrics_summary', {})
+    if metrics_summary:
+        click.echo(f"\n📈 指标摘要:")
+        avg_metrics = metrics_summary.get('average_metrics', {})
+        if avg_metrics:
+            click.echo(f"  • 平均文件大小: {avg_metrics.get('file_size', 0) / 1024:.1f} KB")
+            click.echo(f"  • 平均行数: {avg_metrics.get('line_count', 0):.0f}")
+            click.echo(f"  • 平均最大行长度: {avg_metrics.get('max_line_length', 0):.0f}")
+            click.echo(f"  • 平均注释比例: {avg_metrics.get('comment_percentage', 0):.1f}%")
+            click.echo(f"  • 平均数字比例: {avg_metrics.get('digit_percentage', 0):.1f}%")
+            click.echo(f"  • 平均十六进制比例: {avg_metrics.get('hex_percentage', 0):.1f}%")
+        
+        violations = metrics_summary.get('threshold_violations', {})
+        if violations:
+            click.echo(f"\n⚠️  阈值违规:")
+            if violations.get('oversized_files', 0) > 0:
+                click.echo(f"  • 超大文件: {violations['oversized_files']} 个")
+            if violations.get('long_line_files', 0) > 0:
+                click.echo(f"  • 超长行文件: {violations['long_line_files']} 个")
+            if violations.get('high_line_count_files', 0) > 0:
+                click.echo(f"  • 过多行文件: {violations['high_line_count_files']} 个")
+            if violations.get('high_digit_files', 0) > 0:
+                click.echo(f"  • 高数字比例文件: {violations['high_digit_files']} 个")
+            if violations.get('high_hex_files', 0) > 0:
+                click.echo(f"  • 高十六进制比例文件: {violations['high_hex_files']} 个")
+    
+    if backup and not dry_run:
+        click.echo(f"💾 备份路径: {results.get('backup_path', 'N/A')}")
+    
+    # 显示详细的规则违规信息（如果启用verbose模式）
+    if verbose:
+        detailed_violations = results.get('detailed_violations', [])
+        if detailed_violations:
+            click.echo(f"\n📋 详细规则违规信息:")
+            
+            # 按操作类型分组
+            remove_files = [v for v in detailed_violations if v['action'] == 'remove']
+            clean_files = [v for v in detailed_violations if v['action'] == 'clean']
+            
+            if remove_files:
+                click.echo(f"\n🔴 将被删除的文件 ({len(remove_files)} 个):")
+                for i, violation in enumerate(remove_files[:max_files]):
+                    click.echo(f"  {i+1}. {violation['file']}")
+                    for rule_violation in violation['violations']:
+                        rule_name = {
+                            'min_comment_percentage': '注释比例过低',
+                            'max_comment_percentage': '注释比例过高',
+                            'max_digit_percentage': '数字比例过高',
+                            'max_hex_percentage': '十六进制比例过高',
+                            'max_average_line_length': '平均行长过长'
+                        }.get(rule_violation['rule'], rule_violation['rule'])
+                        
+                        severity_icon = {
+                            'critical': '🔴',
+                            'high': '🟠',
+                            'medium': '🟡'
+                        }.get(rule_violation['severity'], '⚪')
+                        
+                        click.echo(f"     {severity_icon} {rule_name}: {rule_violation['actual']:.1f} (阈值: {rule_violation['threshold']:.1f})")
+                
+                if len(remove_files) > max_files:
+                    click.echo(f"     ... 还有 {len(remove_files) - max_files} 个文件")
+            
+            if clean_files:
+                click.echo(f"\n🟡 将被清洗的文件 ({len(clean_files)} 个):")
+                for i, violation in enumerate(clean_files[:max_files]):
+                    click.echo(f"  {i+1}. {violation['file']}")
+                    for rule_violation in violation['violations']:
+                        rule_name = {
+                            'max_line_length': '单行过长',
+                            'max_file_size': '文件过大',
+                            'max_line_count': '行数过多'
+                        }.get(rule_violation['rule'], rule_violation['rule'])
+                        
+                        severity_icon = {
+                            'high': '🟠',
+                            'medium': '🟡'
+                        }.get(rule_violation['severity'], '⚪')
+                        
+                        if rule_violation['rule'] == 'max_file_size':
+                            actual_str = f"{rule_violation['actual']/1024:.1f}KB"
+                            threshold_str = f"{rule_violation['threshold']/1024:.1f}KB"
+                        else:
+                            actual_str = f"{rule_violation['actual']:.0f}"
+                            threshold_str = f"{rule_violation['threshold']:.0f}"
+                        
+                        click.echo(f"     {severity_icon} {rule_name}: {actual_str} (阈值: {threshold_str})")
+                
+                if len(clean_files) > max_files:
+                    click.echo(f"     ... 还有 {len(clean_files) - max_files} 个文件")
+            
+            # 显示规则统计
+            rule_stats = {}
+            for violation in detailed_violations:
+                for rule_violation in violation['violations']:
+                    rule = rule_violation['rule']
+                    rule_stats[rule] = rule_stats.get(rule, 0) + 1
+            
+            if rule_stats:
+                click.echo(f"\n📊 规则违规统计:")
+                rule_names = {
+                    'max_line_length': '单行过长',
+                    'max_file_size': '文件过大',
+                    'max_line_count': '行数过多',
+                    'min_comment_percentage': '注释比例过低',
+                    'max_comment_percentage': '注释比例过高',
+                    'max_digit_percentage': '数字比例过高',
+                    'max_hex_percentage': '十六进制比例过高',
+                    'max_average_line_length': '平均行长过长'
+                }
+                
+                for rule, count in sorted(rule_stats.items(), key=lambda x: x[1], reverse=True):
+                    rule_name = rule_names.get(rule, rule)
+                    click.echo(f"  • {rule_name}: {count} 个文件")
 
 
 @main.command()

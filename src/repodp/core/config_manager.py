@@ -41,7 +41,7 @@ class ConfigSection(Enum):
     REPORTING = "reporting"
     LOGGING = "logging"
     PERFORMANCE = "performance"
-    FILE_CLEANING = "file_cleaning"
+    FILE_METRICS_CLEANING = "file_metrics_cleaning"
 
 
 class ConfigManager:
@@ -108,8 +108,17 @@ class ConfigManager:
                 ConfigSchema("memory_limit", int, True, 1024, "内存限制(MB)", self._validate_positive_int, "ROPEDP_MEMORY_LIMIT"),
                 ConfigSchema("timeout", int, True, 300, "超时时间(秒)", self._validate_positive_int, "ROPEDP_TIMEOUT"),
             ],
-            ConfigSection.FILE_CLEANING.value: [
-                ConfigSchema("cleanup_rules", dict, True, {}, "清理规则"),
+            ConfigSection.FILE_METRICS_CLEANING.value: [
+                ConfigSchema("thresholds", dict, True, {
+                    "max_file_size": 1048576,
+                    "max_line_count": 10000,
+                    "max_line_length": 500,
+                    "min_comment_percentage": 0,
+                    "max_comment_percentage": 100,
+                    "max_digit_percentage": 50,
+                    "max_hex_percentage": 30,
+                    "max_average_line_length": 200
+                }, "文件指标阈值"),
                 ConfigSchema("backup_enabled", bool, True, True, "启用备份"),
                 ConfigSchema("backup_dir", str, False, "data/backups", "备份目录", self._validate_path),
             ],

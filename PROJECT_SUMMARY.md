@@ -34,14 +34,24 @@ RopeDP 是一个专门针对代码仓库的数据处理工具，支持多代码�
 - 保留代码结构
 - 支持多种编程语言
 
-### 5. 文件去重 ✅
+### 5. 文件指标清洗 ✅
+- **FileMetricsCleaner**: 基于文件指标的清洗器
+- 智能分析文件指标：大小、行数、最大行长、注释比例、数字比例、十六进制比例、平均行长
+- 规则驱动的清洗策略：清洗规则 vs 删除规则
+- 详细的规则违规追踪：显示每个文件被哪条规则处理
+- Python文档字符串优化：准确区分文档字符串和变量多行字符串
+- 备份功能：自动创建清洗前的备份
+- 干运行模式：仅分析不执行清洗操作
+- 可配置阈值：支持自定义各项指标阈值
+
+### 6. 文件去重 ✅
 - **Deduplicator**: 智能去重器
 - 基于哈希值的精确去重
 - 基于相似度的模糊去重
 - 可配置的保留策略
 - 详细的去重报告
 
-### 6. 数据分析 ✅
+### 7. 数据分析 ✅
 - **CodeAnalyzer**: 代码质量分析
 - **MetricsCalculator**: 指标计算器
 - **ReportGenerator**: 报告生成器
@@ -178,6 +188,14 @@ python -m repodp export-config config.yaml
 - 哈希算法选择
 - 相似度阈值
 - 最小文件大小
+
+### 文件指标清洗配置
+- 文件大小阈值 (max_file_size)
+- 行数阈值 (max_line_count, max_line_length)
+- 注释比例阈值 (min_comment_percentage, max_comment_percentage)
+- 数字和十六进制比例阈值 (max_digit_percentage, max_hex_percentage)
+- 平均行长阈值 (max_average_line_length)
+- 备份设置 (backup_enabled, backup_dir)
 
 ### 分析配置
 - 语言检测

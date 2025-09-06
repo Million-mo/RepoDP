@@ -68,12 +68,12 @@ file_metrics_cleaning:
   backup_enabled: true
   thresholds:
     max_average_line_length: 200
-    max_comment_percentage: 50
+    max_comment_percentage: 100
     max_digit_percentage: 50
-    max_file_size: 1048576
+    max_file_size: 5000
     max_hex_percentage: 30
-    max_line_count: 10000
-    max_line_length: 500
+    max_line_count: 100
+    max_line_length: 80
     min_comment_percentage: 0
 jsonl_cleaning:
   enable_comment_cleaning: true

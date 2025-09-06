@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from repodp.core import RepositoryManager, ConfigManager
 from repodp.extractors import FileExtractor, CodeExtractor, TextExtractor
-from repodp.cleaners import FileCleaner, ContentCleaner, Deduplicator
+from repodp.cleaners import ContentCleaner, Deduplicator, FileMetricsCleaner
 from repodp.analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
 from repodp.utils import JSONLUtils
 
@@ -80,9 +80,20 @@ def main():
             else:
                 print("❌ JSONL文件格式验证失败")
         
-        # 示例：清洗文件
-        print("\n🧹 清洗文件...")
-        file_cleaner = FileCleaner(config_manager.config)
+        # 示例：文件指标清洗
+        print("\n📊 文件指标清洗...")
+        file_metrics_cleaner = FileMetricsCleaner(config_manager.config)
+        
+        # 执行文件指标分析（干运行模式）
+        metrics_results = file_metrics_cleaner.analyze_metrics(repo_path, repo_name)
+        print(f"✅ 文件指标分析完成:")
+        print(f"  • 总文件数: {metrics_results['total_files']}")
+        print(f"  • 需要清洗的文件: {metrics_results['cleaned_files']}")
+        print(f"  • 需要删除的文件: {metrics_results['removed_files']}")
+        print(f"  • 忽略的文件: {metrics_results['ignored_files']}")
+        
+        # 示例：内容清洗
+        print("\n🧹 内容清洗...")
         content_cleaner = ContentCleaner(config_manager.config)
         
         cleaned_files = []
@@ -93,7 +104,7 @@ def main():
             else:
                 cleaned_files.append(file_info)
         
-        print(f"✅ 清洗完成，共 {len(cleaned_files)} 个文件")
+        print(f"✅ 内容清洗完成，共 {len(cleaned_files)} 个文件")
         
         # 示例：去重分析
         print("\n🔍 去重分析...")
