@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Generator
 import logging
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +18,6 @@ class FileMetricsCleaner:
         self.config = config
         self.file_metrics_config = config.get('file_metrics_cleaning', {})
         self.thresholds = self.file_metrics_config.get('thresholds', {})
-        self.backup_enabled = self.file_metrics_config.get('backup_enabled', True)
-        self.backup_dir = Path(self.file_metrics_config.get('backup_dir', 'data/backups'))
         
         # 默认阈值配置
         self.default_thresholds = {
@@ -33,10 +30,6 @@ class FileMetricsCleaner:
             'max_hex_percentage': self.thresholds.get('max_hex_percentage', 30),
             'max_average_line_length': self.thresholds.get('max_average_line_length', 200)
         }
-        
-        # 创建备份目录
-        if self.backup_enabled:
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
     
     def clean_by_metrics(self, repo_path: Path, repo_name: str) -> Dict[str, Any]:
         """基于文件指标清洗代码仓库"""
@@ -130,22 +123,6 @@ class FileMetricsCleaner:
             results['errors'].append(str(e))
             return results
     
-    def _create_backup(self, repo_path: Path, repo_name: str) -> Optional[Path]:
-        """创建备份"""
-        try:
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = f"{repo_name}_metrics_backup_{timestamp}"
-            backup_path = self.backup_dir / backup_name
-            
-            import shutil
-            shutil.copytree(repo_path, backup_path)
-            logger.info(f"备份已创建: {backup_path}")
-            return backup_path
-            
-        except Exception as e:
-            logger.error(f"创建备份失败: {e}")
-            return None
     
     def _get_source_files(self, repo_path: Path) -> Generator[Path, None, None]:
         """获取源代码文件"""
@@ -744,3 +721,320 @@ class FileMetricsCleaner:
                 'high_hex_files': high_hex_files
             }
         }
+    
+    def clean_jsonl_by_metrics(self, input_file: Path, output_file: Path, repo_name: str) -> Dict[str, Any]:
+        """基于文件指标清洗JSONL文件"""
+        if not input_file.exists():
+            logger.error(f"输入文件不存在: {input_file}")
+            return {}
+        
+        results = {
+            'total_files': 0,
+            'cleaned_files': 0,
+            'removed_files': 0,
+            'ignored_files': 0,
+            'metrics_summary': {},
+            'errors': []
+        }
+        
+        try:
+            # 读取JSONL文件
+            import json
+            records = []
+            with open(input_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+            
+            results['total_files'] = len(records)
+            
+            # 分析所有记录
+            file_metrics_list = []
+            detailed_violations = []
+            
+            for record in records:
+                try:
+                    if record.get('is_binary', False):
+                        # 跳过二进制文件
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    content = record.get('content', '')
+                    if not content:
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    # 计算文件指标
+                    metrics = self._calculate_content_metrics(content)
+                    if not metrics:
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    rule_violations = self._get_rule_violations(metrics)
+                    should_clean = len(rule_violations['clean_rules']) > 0
+                    should_remove = len(rule_violations['remove_rules']) > 0
+                    
+                    file_info = {
+                        'record': record,
+                        'metrics': metrics,
+                        'rule_violations': rule_violations,
+                        'should_clean': should_clean,
+                        'should_remove': should_remove
+                    }
+                    
+                    file_metrics_list.append(file_info)
+                    
+                    # 记录详细违规信息
+                    if rule_violations['all_violations']:
+                        detailed_violations.append({
+                            'file': record.get('path', record.get('id', 'unknown')),
+                            'violations': rule_violations['all_violations'],
+                            'action': 'remove' if should_remove else 'clean' if should_clean else 'ignore'
+                        })
+                    
+                    # 统计需要清洗/删除的文件
+                    if should_remove:
+                        results['removed_files'] += 1
+                    elif should_clean:
+                        results['cleaned_files'] += 1
+                    else:
+                        results['ignored_files'] += 1
+                        
+                except Exception as e:
+                    logger.error(f"分析记录失败: {e}")
+                    results['errors'].append(f"分析记录失败: {e}")
+            
+            # 添加详细违规信息到结果
+            results['detailed_violations'] = detailed_violations
+            
+            # 生成指标摘要
+            results['metrics_summary'] = self._generate_metrics_summary(file_metrics_list)
+            
+            # 处理记录
+            cleaned_records = []
+            for file_info in file_metrics_list:
+                try:
+                    if file_info['should_remove']:
+                        # 跳过不符合指标的文件
+                        continue
+                    elif file_info['should_clean']:
+                        # 清洗文件内容
+                        cleaned_content = self._clean_content_by_metrics(file_info['record']['content'], file_info['metrics'])
+                        file_info['record']['content'] = cleaned_content
+                        file_info['record']['metrics_cleaned'] = True
+                        cleaned_records.append(file_info['record'])
+                    else:
+                        cleaned_records.append(file_info['record'])
+                except Exception as e:
+                    logger.error(f"处理记录失败: {e}")
+                    results['errors'].append(f"处理记录失败: {e}")
+            
+            # 写入清洗后的文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                for record in cleaned_records:
+                    f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
+            
+            logger.info(f"JSONL文件指标清洗完成: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"JSONL文件指标清洗失败: {e}")
+            results['errors'].append(str(e))
+            return results
+    
+    def analyze_jsonl_metrics(self, input_file: Path, repo_name: str) -> Dict[str, Any]:
+        """仅分析JSONL文件指标，不执行清洗操作"""
+        if not input_file.exists():
+            logger.error(f"输入文件不存在: {input_file}")
+            return {}
+        
+        results = {
+            'total_files': 0,
+            'cleaned_files': 0,
+            'removed_files': 0,
+            'ignored_files': 0,
+            'metrics_summary': {},
+            'errors': []
+        }
+        
+        try:
+            # 读取JSONL文件
+            import json
+            records = []
+            with open(input_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+            
+            results['total_files'] = len(records)
+            
+            # 分析所有记录
+            file_metrics_list = []
+            detailed_violations = []
+            
+            for record in records:
+                try:
+                    if record.get('is_binary', False):
+                        # 跳过二进制文件
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    content = record.get('content', '')
+                    if not content:
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    # 计算文件指标
+                    metrics = self._calculate_content_metrics(content)
+                    if not metrics:
+                        results['ignored_files'] += 1
+                        continue
+                    
+                    rule_violations = self._get_rule_violations(metrics)
+                    should_clean = len(rule_violations['clean_rules']) > 0
+                    should_remove = len(rule_violations['remove_rules']) > 0
+                    
+                    file_info = {
+                        'record': record,
+                        'metrics': metrics,
+                        'rule_violations': rule_violations,
+                        'should_clean': should_clean,
+                        'should_remove': should_remove
+                    }
+                    
+                    file_metrics_list.append(file_info)
+                    
+                    # 记录详细违规信息
+                    if rule_violations['all_violations']:
+                        detailed_violations.append({
+                            'file': record.get('path', record.get('id', 'unknown')),
+                            'violations': rule_violations['all_violations'],
+                            'action': 'remove' if should_remove else 'clean' if should_clean else 'ignore'
+                        })
+                    
+                    # 统计需要清洗/删除的文件
+                    if should_remove:
+                        results['removed_files'] += 1
+                    elif should_clean:
+                        results['cleaned_files'] += 1
+                    else:
+                        results['ignored_files'] += 1
+                        
+                except Exception as e:
+                    logger.error(f"分析记录失败: {e}")
+                    results['errors'].append(f"分析记录失败: {e}")
+            
+            # 添加详细违规信息到结果
+            results['detailed_violations'] = detailed_violations
+            
+            # 生成指标摘要
+            results['metrics_summary'] = self._generate_metrics_summary(file_metrics_list)
+            
+            logger.info(f"JSONL文件指标分析完成: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"JSONL文件指标分析失败: {e}")
+            results['errors'].append(str(e))
+            return results
+    
+    def _calculate_content_metrics(self, content: str) -> Optional[Dict[str, Any]]:
+        """计算内容指标（基于字符串内容而不是文件）"""
+        try:
+            # 基础指标
+            lines = content.splitlines()
+            line_count = len(lines)
+            
+            if line_count == 0:
+                return None
+            
+            # 行长度指标
+            line_lengths = [len(line) for line in lines]
+            max_line_length = max(line_lengths) if line_lengths else 0
+            avg_line_length = sum(line_lengths) / len(line_lengths)
+            
+            # 注释分析（简化版，基于内容而不是文件扩展名）
+            comment_lines = self._count_content_comment_lines(lines)
+            
+            # 计算注释百分比
+            effective_lines = sum(1 for line in lines if line.strip())  # 非空行数
+            comment_percentage = (comment_lines / effective_lines) * 100 if effective_lines > 0 else 0
+            
+            # 数字和十六进制分析
+            total_chars = len(content)
+            digit_count = sum(1 for char in content if char.isdigit())
+            hex_pattern = re.compile(r'0x[0-9a-fA-F]+|[0-9a-fA-F]{4,}')
+            hex_count = len(hex_pattern.findall(content))
+            
+            digit_percentage = (digit_count / total_chars) * 100 if total_chars > 0 else 0
+            hex_percentage = (hex_count / total_chars) * 100 if total_chars > 0 else 0
+            
+            return {
+                'file_size': total_chars,
+                'line_count': line_count,
+                'effective_lines': effective_lines,
+                'max_line_length': max_line_length,
+                'average_line_length': avg_line_length,
+                'comment_percentage': comment_percentage,
+                'digit_percentage': digit_percentage,
+                'hex_percentage': hex_percentage,
+                'comment_lines': comment_lines,
+                'total_chars': total_chars
+            }
+            
+        except Exception as e:
+            logger.error(f"计算内容指标失败: {e}")
+            return None
+    
+    def _count_content_comment_lines(self, lines: List[str]) -> int:
+        """计算内容注释行数（简化版）"""
+        comment_lines = 0
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 检查常见的注释模式
+            if (line.startswith('#') or 
+                line.startswith('//') or 
+                line.startswith('/*') or 
+                line.startswith('*') or
+                line.startswith('<!--') or
+                line.startswith('--')):
+                comment_lines += 1
+        
+        return comment_lines
+    
+    def _clean_content_by_metrics(self, content: str, metrics: Dict[str, Any]) -> str:
+        """根据指标清洗内容"""
+        try:
+            lines = content.splitlines()
+            cleaned_lines = []
+            
+            # 清洗过长的行
+            for line in lines:
+                if len(line) > self.default_thresholds['max_line_length']:
+                    # 尝试在合理位置断行
+                    max_len = self.default_thresholds['max_line_length']
+                    while len(line) > max_len:
+                        # 查找最近的空格或标点符号
+                        break_point = max_len
+                        for i in range(max_len - 1, max(0, max_len - 50), -1):
+                            if line[i] in ' \t,;:.!?':
+                                break_point = i + 1
+                                break
+                        
+                        cleaned_lines.append(line[:break_point].rstrip())
+                        line = line[break_point:].lstrip()
+                    cleaned_lines.append(line)
+                else:
+                    cleaned_lines.append(line)
+            
+            return '\n'.join(cleaned_lines)
+            
+        except Exception as e:
+            logger.error(f"清洗内容失败: {e}")
+            return content

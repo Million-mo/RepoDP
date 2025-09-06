@@ -64,8 +64,6 @@ extraction:
   - .txt
   max_file_size: 20971520
 file_metrics_cleaning:
-  backup_dir: data/backups
-  backup_enabled: true
   thresholds:
     max_average_line_length: 200
     max_comment_percentage: 50

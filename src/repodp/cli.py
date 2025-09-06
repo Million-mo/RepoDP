@@ -5,7 +5,7 @@
 import click
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 from .core import RepositoryManager, ConfigManager
 from .extractors import FileExtractor, CodeExtractor, TextExtractor
@@ -441,12 +441,8 @@ def clean(ctx, name, output, in_place):
     
     # 设置输出文件路径
     if in_place:
-        # 直接覆盖原文件，先创建备份
-        backup_file = input_file.with_suffix('.jsonl.backup')
-        import shutil
-        shutil.copy2(input_file, backup_file)
+        # 直接覆盖原文件
         output_file = input_file
-        click.echo(f"💾 已创建备份文件: {backup_file}")
     elif output:
         output_file = Path(output)
     else:
@@ -523,24 +519,39 @@ def deduplicate(ctx, name, strategy):
 @click.argument('name')
 @click.option('--thresholds', '-t', help='阈值配置文件路径 (JSON格式)')
 @click.option('--dry-run', '-d', is_flag=True, help='仅分析，不执行清洗操作')
-@click.option('--backup/--no-backup', default=True, help='是否创建备份')
+@click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
+@click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
 @click.option('--verbose', '-v', is_flag=True, help='显示详细的规则违规信息')
 @click.option('--max-files', '-m', type=int, default=10, help='显示违规文件的最大数量')
 @click.pass_context
-def clean_metrics(ctx, name, thresholds, dry_run, backup, verbose, max_files):
+def clean_metrics(ctx, name, thresholds, dry_run, output, in_place, verbose, max_files):
     """基于文件指标的清洗（文件大小、行数、注释比例等）"""
     repo_manager = ctx.obj['repo_manager']
     config_manager = ctx.obj['config_manager']
     
-    # 检查仓库是否存在
-    repo_info = repo_manager.get_repository(name)
-    if not repo_info:
-        click.echo(f"❌ 仓库不存在: {name}")
-        raise click.Abort()
+    # 检查提取的文件是否存在
+    extracted_file_jsonl = Path('data/extracted') / name / 'extracted_files.jsonl'
+    extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
     
-    repo_path = Path(repo_info['path'])
-    if not repo_path.exists():
-        click.echo(f"❌ 仓库路径不存在: {repo_path}")
+    input_file = None
+    if extracted_file_jsonl.exists():
+        input_file = extracted_file_jsonl
+        click.echo(f"📄 找到JSONL文件: {extracted_file_jsonl}")
+    elif extracted_file_json.exists():
+        # 如果是JSON格式，先转换为JSONL处理
+        click.echo(f"📄 找到JSON文件，转换为JSONL格式处理: {extracted_file_json}")
+        import json
+        with open(extracted_file_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # 创建临时JSONL文件
+        input_file = Path('data/extracted') / name / 'temp_extracted_files.jsonl'
+        with open(input_file, 'w', encoding='utf-8') as f:
+            for item in data:
+                f.write(json.dumps(item, ensure_ascii=False, default=str) + '\n')
+    else:
+        click.echo(f"❌ 未找到提取文件: {extracted_file_jsonl} 或 {extracted_file_json}")
+        click.echo("请先运行 'repodp extract' 命令提取文件")
         raise click.Abort()
     
     # 加载阈值配置
@@ -554,8 +565,17 @@ def clean_metrics(ctx, name, thresholds, dry_run, backup, verbose, max_files):
             click.echo(f"❌ 加载阈值配置失败: {e}")
             raise click.Abort()
     
-    # 设置备份选项
-    config_manager.set('file_metrics_cleaning.backup_enabled', backup)
+    # 设置输出文件路径
+    if in_place:
+        # 直接覆盖原文件
+        output_file = input_file
+    elif output:
+        output_file = Path(output)
+    else:
+        output_file = input_file.parent / f"{input_file.stem}_metrics_cleaned{input_file.suffix}"
+    
+    # 确保输出目录存在
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
     # 执行文件指标清洗
     click.echo(f"📊 开始文件指标清洗: {name}")
@@ -566,10 +586,10 @@ def clean_metrics(ctx, name, thresholds, dry_run, backup, verbose, max_files):
     
     if dry_run:
         # 仅分析模式
-        results = file_metrics_cleaner.analyze_metrics(repo_path, name)
+        results = file_metrics_cleaner.analyze_jsonl_metrics(input_file, name)
     else:
         # 完整清洗模式
-        results = file_metrics_cleaner.clean_by_metrics(repo_path, name)
+        results = file_metrics_cleaner.clean_jsonl_by_metrics(input_file, output_file, name)
     
     # 显示结果
     click.echo(f"✅ 文件指标分析完成:")
@@ -610,8 +630,12 @@ def clean_metrics(ctx, name, thresholds, dry_run, backup, verbose, max_files):
             if violations.get('high_hex_files', 0) > 0:
                 click.echo(f"  • 高十六进制比例文件: {violations['high_hex_files']} 个")
     
-    if backup and not dry_run:
-        click.echo(f"💾 备份路径: {results.get('backup_path', 'N/A')}")
+    if not dry_run:
+        click.echo(f"📄 输出文件: {output_file}")
+        
+        # 如果是临时文件，清理掉
+        if input_file.name == 'temp_extracted_files.jsonl':
+            input_file.unlink()
     
     # 显示详细的规则违规信息（如果启用verbose模式）
     if verbose:
