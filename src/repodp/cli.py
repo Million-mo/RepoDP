@@ -72,8 +72,9 @@ def main(ctx, verbose, config):
 @click.argument('name')
 @click.option('--branch', '-b', default='main', help='分支名称')
 @click.option('--local', '-l', is_flag=True, help='指定为本地仓库路径')
+@click.option('--reference', '-r', is_flag=True, help='引用模式（仅复制引用，不复制文件）')
 @click.pass_context
-def add_repo(ctx, url_or_path, name, branch, local):
+def add_repo(ctx, url_or_path, name, branch, local, reference):
     """添加新的代码仓库（支持远程URL或本地路径）"""
     repo_manager = ctx.obj['repo_manager']
     
@@ -81,11 +82,20 @@ def add_repo(ctx, url_or_path, name, branch, local):
     path = Path(url_or_path)
     if local or (path.exists() and path.is_dir()):
         # 本地仓库
-        if repo_manager.add_local_repository(name, url_or_path, branch):
-            click.echo(f"✅ 成功添加本地仓库: {name}")
+        if reference:
+            # 引用模式
+            if repo_manager.add_local_repository_reference(name, url_or_path, branch):
+                click.echo(f"✅ 成功添加本地仓库引用: {name}")
+            else:
+                click.echo(f"❌ 添加本地仓库引用失败: {name}")
+                raise click.Abort()
         else:
-            click.echo(f"❌ 添加本地仓库失败: {name}")
-            raise click.Abort()
+            # 复制模式
+            if repo_manager.add_local_repository(name, url_or_path, branch):
+                click.echo(f"✅ 成功添加本地仓库: {name}")
+            else:
+                click.echo(f"❌ 添加本地仓库失败: {name}")
+                raise click.Abort()
     else:
         # 远程仓库
         if repo_manager.add_repository(name, url_or_path, branch):
@@ -107,6 +117,103 @@ def update_repo(ctx, name):
     else:
         click.echo(f"❌ 更新仓库失败: {name}")
         raise click.Abort()
+
+
+@main.command()
+@click.argument('directory', type=click.Path(exists=True))
+@click.option('--pattern', '-p', default='*', help='仓库名称匹配模式（支持通配符）')
+@click.option('--reference', '-r', is_flag=True, help='引用模式（仅复制引用，不复制文件）')
+@click.option('--prefix', help='仓库名称前缀')
+@click.option('--suffix', help='仓库名称后缀')
+@click.pass_context
+def add_dir(ctx, directory, pattern, reference, prefix, suffix):
+    """添加目录下的所有代码仓库"""
+    repo_manager = ctx.obj['repo_manager']
+    
+    import glob
+    from pathlib import Path
+    from git import Repo, InvalidGitRepositoryError
+    
+    directory_path = Path(directory)
+    if not directory_path.is_dir():
+        click.echo(f"❌ 指定的路径不是目录: {directory}")
+        raise click.Abort()
+    
+    # 查找所有子目录
+    repo_count = 0
+    success_count = 0
+    error_count = 0
+    
+    click.echo(f"🔍 扫描目录: {directory}")
+    
+    # 使用glob模式查找匹配的目录
+    search_pattern = directory_path / pattern
+    potential_dirs = glob.glob(str(search_pattern))
+    
+    for dir_path in potential_dirs:
+        dir_path = Path(dir_path)
+        if not dir_path.is_dir():
+            continue
+            
+        repo_count += 1
+        
+        try:
+            # 检查是否为有效的git仓库
+            repo = Repo(dir_path)
+            
+            # 生成仓库名称
+            repo_name = dir_path.name
+            if prefix:
+                repo_name = f"{prefix}{repo_name}"
+            if suffix:
+                repo_name = f"{repo_name}{suffix}"
+            
+            # 检查仓库是否已存在
+            if repo_manager.get_repository(repo_name):
+                click.echo(f"⚠️  仓库已存在，跳过: {repo_name}")
+                continue
+            
+            # 获取当前分支
+            try:
+                current_branch = repo.active_branch.name
+            except TypeError:
+                # 如果处于detached HEAD状态，使用main作为默认分支
+                current_branch = "main"
+            
+            # 添加仓库
+            if reference:
+                success = repo_manager.add_local_repository_reference(
+                    repo_name, str(dir_path), current_branch
+                )
+                if success:
+                    click.echo(f"✅ 成功添加仓库引用: {repo_name} ({dir_path})")
+                    success_count += 1
+                else:
+                    click.echo(f"❌ 添加仓库引用失败: {repo_name}")
+                    error_count += 1
+            else:
+                success = repo_manager.add_local_repository(
+                    repo_name, str(dir_path), current_branch
+                )
+                if success:
+                    click.echo(f"✅ 成功添加仓库: {repo_name} ({dir_path})")
+                    success_count += 1
+                else:
+                    click.echo(f"❌ 添加仓库失败: {repo_name}")
+                    error_count += 1
+                    
+        except InvalidGitRepositoryError:
+            click.echo(f"⏭️  跳过非Git仓库: {dir_path}")
+            continue
+        except Exception as e:
+            click.echo(f"❌ 处理仓库失败 {dir_path}: {e}")
+            error_count += 1
+            continue
+    
+    click.echo(f"\n📊 添加完成:")
+    click.echo(f"  • 扫描目录: {repo_count}")
+    click.echo(f"  • 成功添加: {success_count}")
+    click.echo(f"  • 失败/跳过: {error_count}")
 
 
 @main.command()
@@ -137,7 +244,17 @@ def list_repos(ctx):
     
     click.echo("📁 代码仓库列表:")
     for repo in repos:
-        click.echo(f"  • {repo['url']} (分支: {repo['branch']})")
+        repo_type = repo.get('type', 'remote')
+        if repo_type == 'local_reference':
+            type_icon = '🔗'
+            type_name = 'local_ref'
+        elif repo_type == 'local':
+            type_icon = '📁'
+            type_name = 'local'
+        else:
+            type_icon = '🌐'
+            type_name = 'remote'
+        click.echo(f"  {type_icon} {repo['url']} (分支: {repo['branch']}) [{type_name}]")
         click.echo(f"    路径: {repo['path']}")
         click.echo(f"    最后更新: {repo['last_updated']}")
         click.echo()

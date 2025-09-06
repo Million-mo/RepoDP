@@ -47,7 +47,7 @@ class RepositoryManager:
             logger.error(f"保存仓库配置失败: {e}")
     
     def add_repository(self, name: str, url: str, branch: str = "main") -> bool:
-        """添加新的代码仓库"""
+        """添加新的代码仓库（远程）"""
         try:
             repo_path = self.repos_dir / name
             
@@ -65,15 +65,104 @@ class RepositoryManager:
                 "path": str(repo_path),
                 "branch": branch,
                 "last_updated": repo.head.commit.committed_datetime.isoformat(),
-                "commit_hash": repo.head.commit.hexsha
+                "commit_hash": repo.head.commit.hexsha,
+                "type": "remote"
             }
             
             self._save_repositories()
-            logger.info(f"成功添加仓库: {name}")
+            logger.info(f"成功添加远程仓库: {name}")
             return True
             
         except Exception as e:
-            logger.error(f"添加仓库失败: {e}")
+            logger.error(f"添加远程仓库失败: {e}")
+            return False
+    
+    def add_local_repository_reference(self, name: str, local_path: str, branch: str = "main") -> bool:
+        """添加本地代码仓库引用（不复制文件）"""
+        try:
+            source_path = Path(local_path)
+            if not source_path.exists():
+                logger.error(f"本地路径不存在: {local_path}")
+                return False
+            
+            if not source_path.is_dir():
+                logger.error(f"本地路径不是目录: {local_path}")
+                return False
+            
+            # 验证是否为有效的git仓库
+            try:
+                source_repo = Repo(source_path)
+            except InvalidGitRepositoryError:
+                logger.error(f"本地路径不是有效的git仓库: {local_path}")
+                return False
+            
+            # 引用模式：直接使用源路径，不复制文件
+            # 保存仓库信息
+            self.repositories[name] = {
+                "url": local_path,  # 本地路径作为url
+                "path": str(source_path),  # 直接使用源路径
+                "branch": branch,
+                "last_updated": source_repo.head.commit.committed_datetime.isoformat(),
+                "commit_hash": source_repo.head.commit.hexsha,
+                "type": "local_reference"  # 新的类型：本地引用
+            }
+            
+            self._save_repositories()
+            logger.info(f"成功添加本地仓库引用: {name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"添加本地仓库引用失败: {e}")
+            return False
+    
+    def add_local_repository(self, name: str, local_path: str, branch: str = "main") -> bool:
+        """添加本地代码仓库（复制模式）"""
+        try:
+            source_path = Path(local_path)
+            if not source_path.exists():
+                logger.error(f"本地路径不存在: {local_path}")
+                return False
+            
+            if not source_path.is_dir():
+                logger.error(f"本地路径不是目录: {local_path}")
+                return False
+            
+            # 验证是否为有效的git仓库
+            try:
+                source_repo = Repo(source_path)
+            except InvalidGitRepositoryError:
+                logger.error(f"本地路径不是有效的git仓库: {local_path}")
+                return False
+            
+            repo_path = self.repos_dir / name
+            
+            # 如果目标目录已存在，先删除
+            if repo_path.exists():
+                shutil.rmtree(repo_path)
+            
+            # 复制本地仓库到目标位置
+            logger.info(f"正在复制本地仓库: {local_path}")
+            shutil.copytree(source_path, repo_path)
+            
+            # 获取仓库信息
+            repo = Repo(repo_path)
+            
+            # 保存仓库信息
+            self.repositories[name] = {
+                "url": local_path,  # 本地路径作为url
+                "path": str(repo_path),
+                "branch": branch,
+                "last_updated": repo.head.commit.committed_datetime.isoformat(),
+                "commit_hash": repo.head.commit.hexsha,
+                "type": "local"
+            }
+            
+            self._save_repositories()
+            logger.info(f"成功添加本地仓库: {name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"添加本地仓库失败: {e}")
             return False
     
     def update_repository(self, name: str) -> bool:
@@ -86,9 +175,16 @@ class RepositoryManager:
             repo_path = Path(self.repositories[name]["path"])
             repo = Repo(repo_path)
             
-            # 拉取最新代码
-            origin = repo.remotes.origin
-            origin.pull()
+            # 检查仓库类型
+            repo_type = self.repositories[name].get("type", "remote")
+            
+            if repo_type in ["local", "local_reference"]:
+                # 本地仓库不执行拉取操作，只更新信息
+                logger.info(f"本地仓库 {name} 跳过拉取操作")
+            else:
+                # 远程仓库拉取最新代码
+                origin = repo.remotes.origin
+                origin.pull()
             
             # 更新仓库信息
             self.repositories[name].update({
@@ -112,10 +208,18 @@ class RepositoryManager:
         
         try:
             repo_path = Path(self.repositories[name]["path"])
+            repo_type = self.repositories[name].get("type", "remote")
             
-            # 删除本地目录
-            if repo_path.exists():
-                shutil.rmtree(repo_path)
+            # 删除本地目录（仅对于非引用模式）
+            if repo_path.exists() and repo_type != "local_reference":
+                # 只对复制模式的本地仓库和远程仓库删除目录
+                if repo_path.is_relative_to(self.repos_dir):
+                    shutil.rmtree(repo_path)
+                    logger.info(f"已删除仓库目录: {repo_path}")
+                else:
+                    logger.warning(f"跳过节删除仓库目录（路径不在repos目录中）: {repo_path}")
+            elif repo_type == "local_reference":
+                logger.info(f"引用模式仓库，不删除源目录: {repo_path}")
             
             # 从配置中移除
             del self.repositories[name]
