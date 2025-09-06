@@ -20,6 +20,54 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def extract_repo_name(url_or_path: str) -> str:
+    """从URL或路径提取仓库名称"""
+    try:
+        # 处理本地路径
+        path = Path(url_or_path)
+        if path.exists() and path.is_dir():
+            # 如果是本地目录，返回目录名
+            return path.name
+        
+        # 处理URL (GitHub, GitLab, Bitbucket等)
+        # 移除末尾的.git（如果存在）
+        if url_or_path.endswith('.git'):
+            url_or_path = url_or_path[:-4]
+        
+        # 提取最后一部分作为仓库名
+        # 处理各种URL格式:
+        # https://github.com/user/repo
+        # git@github.com:user/repo
+        # https://gitlab.com/user/repo.git
+        # etc.
+        
+        # 首先尝试处理URL格式
+        if '://' in url_or_path or '@' in url_or_path:
+            # 移除协议部分
+            if '://' in url_or_path:
+                url_or_path = url_or_path.split('://', 1)[1]
+            elif '@' in url_or_path:
+                url_or_path = url_or_path.split('@', 1)[1]
+            
+            # 移除域名部分
+            if '/' in url_or_path:
+                parts = url_or_path.split('/')
+                if len(parts) >= 2:
+                    # 返回最后一部分（仓库名）
+                    return parts[-1]
+        
+        # 如果不是URL格式，直接返回最后一部分
+        if '/' in url_or_path or '\\' in url_or_path:
+            return Path(url_or_path).name
+        
+        # 如果没有路径分隔符，直接返回原字符串
+        return url_or_path
+        
+    except Exception as e:
+        logger.warning(f"提取仓库名称失败: {e}, 使用原始字符串")
+        return Path(url_or_path).name if '/' in url_or_path or '\\' in url_or_path else url_or_path
+
+
 def load_extracted_files(name: str) -> List[Dict[str, Any]]:
     """加载提取的文件数据"""
     extracted_file_json = Path('data/extracted') / name / 'extracted_files.json'
@@ -69,7 +117,7 @@ def main(ctx, verbose, config):
 
 @main.command()
 @click.argument('url_or_path')
-@click.argument('name')
+@click.argument('name', required=False)
 @click.option('--branch', '-b', default='main', help='分支名称')
 @click.option('--local', '-l', is_flag=True, help='指定为本地仓库路径')
 @click.option('--reference', '-r', is_flag=True, help='引用模式（仅复制引用，不复制文件）')
@@ -77,6 +125,11 @@ def main(ctx, verbose, config):
 def add_repo(ctx, url_or_path, name, branch, local, reference):
     """添加新的代码仓库（支持远程URL或本地路径）"""
     repo_manager = ctx.obj['repo_manager']
+    
+    # 如果没有提供名称，自动提取
+    if not name:
+        name = extract_repo_name(url_or_path)
+        click.echo(f"🤖 自动提取仓库名称: {name}")
     
     # 检测是否为本地路径
     path = Path(url_or_path)
@@ -161,6 +214,24 @@ def add_dir(ctx, directory, pattern, reference, prefix, suffix):
             # 检查是否为有效的git仓库
             repo = Repo(dir_path)
             
+            # 获取仓库信息
+            try:
+                current_branch = repo.active_branch.name
+            except TypeError:
+                # 如果处于detached HEAD状态，使用main作为默认分支
+                current_branch = "main"
+            
+            # 获取远程仓库URL
+            if 'origin' in repo.remotes:
+                remote_url = repo.remotes.origin.url
+                url_info = f" (远程: {remote_url})"
+            elif repo.remotes:
+                remote_url = repo.remotes[0].url
+                url_info = f" (远程: {remote_url})"
+            else:
+                remote_url = str(dir_path)
+                url_info = " (无远程仓库)"
+            
             # 生成仓库名称
             repo_name = dir_path.name
             if prefix:
@@ -170,15 +241,8 @@ def add_dir(ctx, directory, pattern, reference, prefix, suffix):
             
             # 检查仓库是否已存在
             if repo_manager.get_repository(repo_name):
-                click.echo(f"⚠️  仓库已存在，跳过: {repo_name}")
+                click.echo(f"⚠️  仓库已存在，跳过: {repo_name}{url_info}")
                 continue
-            
-            # 获取当前分支
-            try:
-                current_branch = repo.active_branch.name
-            except TypeError:
-                # 如果处于detached HEAD状态，使用main作为默认分支
-                current_branch = "main"
             
             # 添加仓库
             if reference:
@@ -186,20 +250,20 @@ def add_dir(ctx, directory, pattern, reference, prefix, suffix):
                     repo_name, str(dir_path), current_branch
                 )
                 if success:
-                    click.echo(f"✅ 成功添加仓库引用: {repo_name} ({dir_path})")
+                    click.echo(f"✅ 成功添加仓库引用: {repo_name} ({dir_path}){url_info}")
                     success_count += 1
                 else:
-                    click.echo(f"❌ 添加仓库引用失败: {repo_name}")
+                    click.echo(f"❌ 添加仓库引用失败: {repo_name}{url_info}")
                     error_count += 1
             else:
                 success = repo_manager.add_local_repository(
                     repo_name, str(dir_path), current_branch
                 )
                 if success:
-                    click.echo(f"✅ 成功添加仓库: {repo_name} ({dir_path})")
+                    click.echo(f"✅ 成功添加仓库: {repo_name} ({dir_path}){url_info}")
                     success_count += 1
                 else:
-                    click.echo(f"❌ 添加仓库失败: {repo_name}")
+                    click.echo(f"❌ 添加仓库失败: {repo_name}{url_info}")
                     error_count += 1
                     
         except InvalidGitRepositoryError:

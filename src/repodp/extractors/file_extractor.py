@@ -17,10 +17,12 @@ class FileExtractor:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.file_types = config.get('file_types', [])
-        self.exclude_dirs = config.get('exclude_dirs', [])
-        self.exclude_files = config.get('exclude_files', [])
-        self.max_file_size = config.get('max_file_size', 10 * 1024 * 1024)
+        # Support both direct config and nested extraction config
+        extraction_config = config.get('extraction', config)
+        self.file_types = extraction_config.get('file_types', [])
+        self.exclude_dirs = extraction_config.get('exclude_dirs', [])
+        self.exclude_files = extraction_config.get('exclude_files', [])
+        self.max_file_size = extraction_config.get('max_file_size', 10 * 1024 * 1024)
     
     def should_extract_file(self, file_path: Path) -> bool:
         """判断是否应该提取文件"""

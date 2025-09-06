@@ -77,6 +77,24 @@ class RepositoryManager:
             logger.error(f"添加远程仓库失败: {e}")
             return False
     
+    def _get_repository_url(self, repo: Repo) -> str:
+        """从Git配置中获取仓库URL"""
+        try:
+            # 优先获取origin远程仓库的URL
+            if 'origin' in repo.remotes:
+                return repo.remotes.origin.url
+            
+            # 如果没有origin，获取第一个远程仓库的URL
+            if repo.remotes:
+                return repo.remotes[0].url
+                
+            # 如果没有远程仓库，返回本地路径
+            return str(repo.working_dir)
+            
+        except Exception as e:
+            logger.warning(f"获取仓库URL失败: {e}")
+            return str(repo.working_dir)
+    
     def add_local_repository_reference(self, name: str, local_path: str, branch: str = "main") -> bool:
         """添加本地代码仓库引用（不复制文件）"""
         try:
@@ -96,10 +114,13 @@ class RepositoryManager:
                 logger.error(f"本地路径不是有效的git仓库: {local_path}")
                 return False
             
+            # 获取远程仓库URL（如果存在）
+            repo_url = self._get_repository_url(source_repo)
+            
             # 引用模式：直接使用源路径，不复制文件
             # 保存仓库信息
             self.repositories[name] = {
-                "url": local_path,  # 本地路径作为url
+                "url": repo_url,  # 使用检测到的URL或本地路径
                 "path": str(source_path),  # 直接使用源路径
                 "branch": branch,
                 "last_updated": source_repo.head.commit.committed_datetime.isoformat(),
@@ -147,9 +168,12 @@ class RepositoryManager:
             # 获取仓库信息
             repo = Repo(repo_path)
             
+            # 获取远程仓库URL（如果存在）
+            repo_url = self._get_repository_url(repo)
+            
             # 保存仓库信息
             self.repositories[name] = {
-                "url": local_path,  # 本地路径作为url
+                "url": repo_url,  # 使用检测到的URL或本地路径
                 "path": str(repo_path),
                 "branch": branch,
                 "last_updated": repo.head.commit.committed_datetime.isoformat(),
