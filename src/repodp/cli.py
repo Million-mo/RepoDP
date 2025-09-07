@@ -1117,7 +1117,7 @@ def dry_run(ctx, pipeline_name):
     config_manager = ctx.obj['config_manager']
     
     try:
-        pipeline_manager = PipelineManager(config_manager.config)
+        pipeline_manager = PipelineManager(config_manager.config, repo_manager=repo_manager)
         result = pipeline_manager.dry_run(pipeline_name)
         
         if 'error' in result:
@@ -1175,7 +1175,7 @@ def run(ctx, repo_name, pipeline, output, dry_run):
             return
         
         # 创建pipeline管理器
-        pipeline_manager = PipelineManager(config_manager.config)
+        pipeline_manager = PipelineManager(config_manager.config, repo_manager=repo_manager)
         
         if dry_run:
             # 模拟执行
@@ -1316,6 +1316,123 @@ def update(ctx, pipeline_name, config_file):
     
     except Exception as e:
         click.echo(f"❌ 更新pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('repo_names', nargs=-1, required=True)
+@click.option('--pipeline', '-p', help='指定pipeline名称（默认使用标准pipeline）')
+@click.option('--output', '-o', type=click.Path(), help='输出目录')
+@click.option('--workers', '-w', default=4, help='并行处理的工作线程数')
+@click.option('--no-merge', is_flag=True, help='不合并结果文件')
+@click.option('--dry-run', is_flag=True, help='模拟执行（不实际执行）')
+@click.pass_context
+def batch(ctx, repo_names, pipeline, output, workers, no_merge, dry_run):
+    """批量执行pipeline处理多个代码仓库"""
+    config_manager = ctx.obj['config_manager']
+    repo_manager = ctx.obj['repo_manager']
+    
+    try:
+        # 验证所有仓库是否存在
+        invalid_repos = []
+        for repo_name in repo_names:
+            if not repo_manager.is_valid_repository(repo_name):
+                invalid_repos.append(repo_name)
+        
+        if invalid_repos:
+            click.echo(f"❌ 以下仓库不存在: {', '.join(invalid_repos)}")
+            return
+        
+        # 创建pipeline管理器
+        from .core.pipeline_manager import PipelineManager
+        pipeline_manager = PipelineManager(config_manager.config, repo_manager=repo_manager)
+        
+        if dry_run:
+            click.echo(f"🔍 批量Pipeline '{pipeline or 'default'}' 模拟执行结果:")
+            click.echo("=" * 60)
+            click.echo(f"目标仓库: {', '.join(repo_names)}")
+            click.echo(f"并行工作线程: {workers}")
+            click.echo(f"合并结果: {'否' if no_merge else '是'}")
+            click.echo()
+            
+            # 模拟每个仓库的处理
+            for repo_name in repo_names:
+                click.echo(f"📁 仓库: {repo_name}")
+                repo_path = repo_manager.get_repository_path(repo_name)
+                dry_run_result = pipeline_manager.dry_run_pipeline(
+                    repo_path=repo_path,
+                    pipeline_name=pipeline,
+                    repo_name=repo_name
+                )
+                
+                if dry_run_result.get('success', False):
+                    click.echo(f"  ✅ 预估执行步骤: {', '.join(dry_run_result['steps'])}")
+                    click.echo(f"  📁 预估输出文件: {len(dry_run_result['estimated_outputs'])} 个")
+                else:
+                    click.echo(f"  ❌ 模拟失败: {dry_run_result.get('error', '未知错误')}")
+                click.echo()
+            
+            return
+        
+        # 实际执行
+        click.echo(f"🚀 开始批量执行Pipeline '{pipeline or 'default'}' 处理 {len(repo_names)} 个仓库")
+        click.echo("=" * 60)
+        click.echo(f"目标仓库: {', '.join(repo_names)}")
+        click.echo(f"并行工作线程: {workers}")
+        click.echo(f"合并结果: {'否' if no_merge else '是'}")
+        click.echo()
+        
+        result = pipeline_manager.execute_batch_pipeline(
+            repo_names=list(repo_names),
+            pipeline_name=pipeline,
+            output_dir=output,
+            max_workers=workers,
+            merge_results=not no_merge
+        )
+        
+        # 显示结果摘要
+        click.echo("📊 批量处理结果摘要:")
+        click.echo(f"  总仓库数: {result['total_repos']}")
+        click.echo(f"  成功处理: {result['successful_repos']}")
+        click.echo(f"  处理失败: {result['failed_repos']}")
+        click.echo(f"  成功率: {result['summary']['success_rate']:.1%}")
+        click.echo(f"  处理时间: {result['summary']['processing_time']}")
+        
+        if result['successful_repos'] > 0:
+            click.echo()
+            click.echo("✅ 成功处理的仓库:")
+            for repo_name, repo_result in result['results'].items():
+                if repo_result.get('success', False):
+                    click.echo(f"  ✅ {repo_name}")
+                    # 显示各步骤统计
+                    for step_name, step_result in repo_result.get('steps', {}).items():
+                        if step_result.get('success', False) and 'stats' in step_result:
+                            stats = step_result['stats']
+                            if 'files_extracted' in stats:
+                                click.echo(f"    📁 {step_name}: 提取 {stats['files_extracted']} 个文件")
+                            elif 'original_count' in stats:
+                                click.echo(f"    🔄 {step_name}: 处理 {stats['original_count']} 个文件")
+                            elif 'cleaned_files' in stats:
+                                click.echo(f"    🧹 {step_name}: 清洗 {stats['cleaned_files']} 个文件")
+        
+        if result['failed_repos'] > 0:
+            click.echo()
+            click.echo("❌ 处理失败的仓库:")
+            for repo_name, repo_result in result['results'].items():
+                if not repo_result.get('success', False):
+                    click.echo(f"  ❌ {repo_name}: {repo_result.get('error', '未知错误')}")
+        
+        if result.get('merged_results'):
+            click.echo()
+            click.echo("📁 合并结果文件:")
+            for step_name, merged_info in result['merged_results']['merged_files'].items():
+                click.echo(f"  📄 {step_name}: {merged_info['total_records']} 条记录")
+            click.echo(f"  📂 合并结果目录: {result['merged_results']['output_dir']}")
+        
+        click.echo()
+        click.echo(f"📋 详细报告: {result.get('output_dir', 'data/output/batch_results')}/batch_pipeline_report.json")
+        
+    except Exception as e:
+        click.echo(f"❌ 批量处理失败: {e}")
 
 
 if __name__ == '__main__':

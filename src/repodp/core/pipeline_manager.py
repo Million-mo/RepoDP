@@ -9,6 +9,8 @@ from typing import Dict, Any, List, Optional, Generator, Union
 import logging
 from datetime import datetime
 from collections import defaultdict, deque
+import concurrent.futures
+from threading import Lock
 
 from ..extractors.file_extractor import FileExtractor
 from ..cleaners.deduplicator import Deduplicator
@@ -95,11 +97,12 @@ class PipelineStep:
 class PipelineManager:
     """Pipeline管理器"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], repo_manager=None):
         self.config = config
         self.pipeline_config = config.get('pipeline', {})
         self.default_pipeline = self.pipeline_config.get('default_pipeline', 'standard')
         self.pipelines = self.pipeline_config.get('pipelines', {})
+        self.repo_manager = repo_manager
         
         # 工作目录
         self.work_dir = Path(config.get('work_dir', 'data'))
@@ -541,3 +544,312 @@ class PipelineManager:
             return f"{method}_analysis.json"
         else:
             return f"{step_name}_output.jsonl"
+    
+    def dry_run_pipeline(self, 
+                        repo_path: Union[str, Path], 
+                        pipeline_name: Optional[str] = None,
+                        repo_name: Optional[str] = None) -> Dict[str, Any]:
+        """模拟执行pipeline（不实际执行）"""
+        repo_path = Path(repo_path)
+        if not repo_path.exists():
+            raise ValueError(f"仓库路径不存在: {repo_path}")
+        
+        if repo_name is None:
+            repo_name = repo_path.name
+        
+        # 获取pipeline配置
+        pipeline = self.get_pipeline(pipeline_name)
+        steps = pipeline.get('steps', [])
+        
+        if not steps:
+            return {
+                'success': False,
+                'error': 'Pipeline中没有配置步骤'
+            }
+        
+        # 创建步骤对象
+        pipeline_steps = {}
+        for step_config in steps:
+            step_name = step_config['name']
+            pipeline_steps[step_name] = PipelineStep(step_name, step_config, self.config)
+        
+        # 模拟执行
+        try:
+            dry_run_result = self._simulate_pipeline_execution(pipeline_steps, repo_name)
+            return dry_run_result
+            
+        except Exception as e:
+            return {
+                'error': str(e),
+                'success': False
+            }
+    
+    def _simulate_pipeline_execution(self, pipeline_steps: Dict[str, PipelineStep], repo_name: str) -> Dict[str, Any]:
+        """模拟pipeline执行"""
+        # 获取执行顺序
+        execution_order = self._get_execution_order(pipeline_steps)
+        
+        # 模拟执行
+        dry_run_result = {
+            'success': True,
+            'steps': execution_order,
+            'total_steps': len(pipeline_steps),
+            'enabled_steps': sum(1 for step in pipeline_steps.values() if step.enabled),
+            'estimated_outputs': []
+        }
+        
+        completed_steps = set()
+        current_output = "extracted_files.jsonl"
+        
+        for step_name in execution_order:
+            step = pipeline_steps[step_name]
+            
+            if not step.can_execute(completed_steps):
+                continue
+            
+            output_file = self._get_estimated_output_file(step_name, step.type)
+            dry_run_result['estimated_outputs'].append(output_file)
+            
+            completed_steps.add(step_name)
+            current_output = output_file
+        
+        return dry_run_result
+    
+    def execute_batch_pipeline(self, 
+                             repo_names: List[str], 
+                             pipeline_name: Optional[str] = None,
+                             output_dir: Optional[Union[str, Path]] = None,
+                             max_workers: int = 4,
+                             merge_results: bool = True) -> Dict[str, Any]:
+        """批量执行pipeline处理多个代码仓库"""
+        if not repo_names:
+            raise ValueError("至少需要指定一个仓库名称")
+        
+        if output_dir is None:
+            output_dir = self.output_dir / "batch_results"
+        else:
+            output_dir = Path(output_dir)
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 获取pipeline配置
+        pipeline = self.get_pipeline(pipeline_name)
+        pipeline_name = pipeline_name or self.config.get('pipeline', {}).get('default_pipeline', 'standard')
+        
+        batch_results = {
+            'pipeline_name': pipeline_name,
+            'start_time': datetime.now().isoformat(),
+            'repositories': repo_names,
+            'total_repos': len(repo_names),
+            'successful_repos': 0,
+            'failed_repos': 0,
+            'results': {},
+            'errors': [],
+            'merged_results': None,
+            'summary': {}
+        }
+        
+        logger.info(f"开始批量处理 {len(repo_names)} 个仓库: {', '.join(repo_names)}")
+        
+        # 并行处理仓库
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_repo = {}
+            for repo_name in repo_names:
+                repo_output_dir = output_dir / repo_name
+                future = executor.submit(
+                    self._execute_single_repo_pipeline,
+                    repo_name, pipeline_name, repo_output_dir
+                )
+                future_to_repo[future] = repo_name
+            
+            # 收集结果
+            for future in concurrent.futures.as_completed(future_to_repo):
+                repo_name = future_to_repo[future]
+                try:
+                    result = future.result()
+                    batch_results['results'][repo_name] = result
+                    if result.get('success', False):
+                        batch_results['successful_repos'] += 1
+                        logger.info(f"✅ 仓库 {repo_name} 处理成功")
+                    else:
+                        batch_results['failed_repos'] += 1
+                        error_msg = f"仓库 {repo_name} 处理失败: {result.get('error', '未知错误')}"
+                        batch_results['errors'].append(error_msg)
+                        logger.error(f"❌ {error_msg}")
+                        
+                except Exception as e:
+                    batch_results['failed_repos'] += 1
+                    error_msg = f"仓库 {repo_name} 处理异常: {str(e)}"
+                    batch_results['errors'].append(error_msg)
+                    batch_results['results'][repo_name] = {
+                        'success': False,
+                        'error': str(e),
+                        'repo_name': repo_name
+                    }
+                    logger.error(f"❌ {error_msg}")
+        
+        # 生成汇总统计
+        batch_results['end_time'] = datetime.now().isoformat()
+        batch_results['summary'] = self._generate_batch_summary(batch_results)
+        
+        # 如果需要合并结果
+        if merge_results and batch_results['successful_repos'] > 0:
+            try:
+                merged_results = self._merge_batch_results(batch_results, output_dir)
+                batch_results['merged_results'] = merged_results
+                logger.info(f"✅ 结果已合并到: {merged_results['output_dir']}")
+            except Exception as e:
+                error_msg = f"合并结果失败: {str(e)}"
+                batch_results['errors'].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+        
+        # 保存批量处理报告
+        self._save_batch_report(batch_results, output_dir)
+        
+        return batch_results
+    
+    def _execute_single_repo_pipeline(self, 
+                                    repo_name: str, 
+                                    pipeline_name: str, 
+                                    output_dir: Path) -> Dict[str, Any]:
+        """执行单个仓库的pipeline"""
+        try:
+            # 从repository_manager获取仓库路径
+            if self.repo_manager:
+                repo_path = self.repo_manager.get_repository_path(repo_name)
+                if not repo_path or not repo_path.exists():
+                    raise ValueError(f"仓库路径不存在或无效: {repo_name}")
+            else:
+                # 回退到默认路径
+                repo_path = self.work_dir / "repos" / repo_name
+                if not repo_path.exists():
+                    # 尝试其他可能的路径
+                    repo_path = Path(repo_name)
+                    if not repo_path.exists():
+                        raise ValueError(f"仓库路径不存在: {repo_name}")
+            
+            return self.execute_pipeline(
+                repo_path=repo_path,
+                pipeline_name=pipeline_name,
+                repo_name=repo_name,
+                output_dir=output_dir
+            )
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'repo_name': repo_name
+            }
+    
+    def _generate_batch_summary(self, batch_results: Dict[str, Any]) -> Dict[str, Any]:
+        """生成批量处理汇总统计"""
+        total_repos = batch_results['total_repos']
+        successful_repos = batch_results['successful_repos']
+        failed_repos = batch_results['failed_repos']
+        
+        # 统计各步骤的处理情况
+        step_stats = defaultdict(lambda: {'total': 0, 'success': 0, 'failed': 0})
+        
+        for repo_name, result in batch_results['results'].items():
+            if result.get('success', False) and 'steps' in result:
+                for step_name, step_result in result['steps'].items():
+                    step_stats[step_name]['total'] += 1
+                    if step_result.get('success', False):
+                        step_stats[step_name]['success'] += 1
+                    else:
+                        step_stats[step_name]['failed'] += 1
+        
+        return {
+            'total_repositories': total_repos,
+            'successful_repositories': successful_repos,
+            'failed_repositories': failed_repos,
+            'success_rate': successful_repos / total_repos if total_repos > 0 else 0,
+            'step_statistics': dict(step_stats),
+            'processing_time': self._calculate_processing_time(
+                batch_results['start_time'], 
+                batch_results['end_time']
+            )
+        }
+    
+    def _calculate_processing_time(self, start_time: str, end_time: str) -> str:
+        """计算处理时间"""
+        try:
+            start = datetime.fromisoformat(start_time)
+            end = datetime.fromisoformat(end_time)
+            duration = end - start
+            return str(duration)
+        except:
+            return "未知"
+    
+    def _merge_batch_results(self, batch_results: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
+        """合并批量处理结果"""
+        merged_dir = output_dir / "merged"
+        merged_dir.mkdir(exist_ok=True)
+        
+        merged_results = {
+            'output_dir': str(merged_dir),
+            'merged_files': {},
+            'total_files': 0,
+            'repositories': []
+        }
+        
+        # 合并每个步骤的结果
+        step_files = defaultdict(list)
+        
+        for repo_name, result in batch_results['results'].items():
+            if not result.get('success', False):
+                continue
+                
+            merged_results['repositories'].append(repo_name)
+            repo_output_dir = output_dir / repo_name
+            
+            # 收集各步骤的输出文件
+            for step_name, step_result in result.get('steps', {}).items():
+                if step_result.get('success', False) and 'output_file' in step_result:
+                    output_file = Path(step_result['output_file'])
+                    if output_file.exists():
+                        step_files[step_name].append(output_file)
+        
+        # 合并每个步骤的文件
+        for step_name, files in step_files.items():
+            if not files:
+                continue
+                
+            merged_file = merged_dir / f"merged_{step_name}.jsonl"
+            total_files = 0
+            
+            with open(merged_file, 'w', encoding='utf-8') as outfile:
+                for file_path in files:
+                    with open(file_path, 'r', encoding='utf-8') as infile:
+                        for line in infile:
+                            line = line.strip()
+                            if line:
+                                # 添加仓库标识
+                                try:
+                                    data = json.loads(line)
+                                    data['source_repo'] = file_path.parent.name
+                                    outfile.write(json.dumps(data, ensure_ascii=False, default=str) + '\n')
+                                    total_files += 1
+                                except json.JSONDecodeError:
+                                    continue
+            
+            merged_results['merged_files'][step_name] = {
+                'file_path': str(merged_file),
+                'total_records': total_files,
+                'source_files': len(files)
+            }
+            merged_results['total_files'] += total_files
+        
+        return merged_results
+    
+    def _save_batch_report(self, batch_results: Dict[str, Any], output_dir: Path):
+        """保存批量处理报告"""
+        report_file = output_dir / "batch_pipeline_report.json"
+        
+        try:
+            with open(report_file, 'w', encoding='utf-8') as f:
+                json.dump(batch_results, f, ensure_ascii=False, indent=2, default=str)
+            logger.info(f"批量处理报告已保存: {report_file}")
+        except Exception as e:
+            logger.error(f"保存批量处理报告失败: {e}")
