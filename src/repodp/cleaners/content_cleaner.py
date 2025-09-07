@@ -320,4 +320,56 @@ class ContentCleaner:
             'chars_removed': original_chars - cleaned_chars,
             'compression_ratio': cleaned_chars / original_chars if original_chars > 0 else 1.0
         }
+    
+    def clean_jsonl_content(self, input_file: Path, output_file: Path) -> Dict[str, Any]:
+        """清洗JSONL文件内容"""
+        import json
+        
+        if not input_file.exists():
+            logger.error(f"输入文件不存在: {input_file}")
+            return {'success': False, 'error': '输入文件不存在'}
+        
+        try:
+            cleaned_count = 0
+            total_count = 0
+            
+            with open(input_file, 'r', encoding='utf-8') as infile, \
+                 open(output_file, 'w', encoding='utf-8') as outfile:
+                
+                for line in infile:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    try:
+                        file_info = json.loads(line)
+                        total_count += 1
+                        
+                        # 清洗内容
+                        cleaned_file_info = self.clean_content(file_info)
+                        cleaned_count += 1
+                        
+                        # 写入清洗后的内容
+                        outfile.write(json.dumps(cleaned_file_info, ensure_ascii=False, default=str) + '\n')
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"解析JSON行失败: {e}")
+                        continue
+            
+            logger.info(f"内容清洗完成: {input_file} -> {output_file}")
+            return {
+                'success': True,
+                'input_file': str(input_file),
+                'output_file': str(output_file),
+                'total_files': total_count,
+                'cleaned_files': cleaned_count
+            }
+            
+        except Exception as e:
+            logger.error(f"清洗JSONL内容失败: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'input_file': str(input_file)
+            }
 

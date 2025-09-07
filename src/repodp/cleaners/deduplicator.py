@@ -91,7 +91,7 @@ class Deduplicator:
         logger.info(f"找到 {len(similar_groups)} 个相似文件组")
         
         # 生成报告
-        report = self._generate_report(hash_groups, similar_groups)
+        report = self._generate_report(hash_groups, similar_groups, len(file_list))
         
         return report
     
@@ -232,11 +232,15 @@ class Deduplicator:
         
         return dp[m][n]
     
-    def _generate_report(self, hash_groups: Dict[str, List[Dict[str, Any]]], similar_groups: List[List[Dict[str, Any]]]) -> Dict[str, Any]:
+    def _generate_report(self, hash_groups: Dict[str, List[Dict[str, Any]]], similar_groups: List[List[Dict[str, Any]]], total_input_files: int = 0) -> Dict[str, Any]:
         """生成去重报告"""
         total_files = sum(len(files) for files in hash_groups.values())
         duplicate_groups = len(hash_groups)
         similar_groups_count = len(similar_groups)
+        
+        # 如果没有重复文件，使用输入文件总数
+        if total_files == 0 and total_input_files > 0:
+            total_files = total_input_files
         
         # 计算可节省的空间
         total_duplicate_size = 0

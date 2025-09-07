@@ -42,6 +42,7 @@ class ConfigSection(Enum):
     LOGGING = "logging"
     PERFORMANCE = "performance"
     FILE_METRICS_CLEANING = "file_metrics_cleaning"
+    PIPELINE = "pipeline"
 
 
 class ConfigManager:
@@ -129,6 +130,12 @@ class ConfigManager:
                 ConfigSchema("preserve_copyright_structure", bool, True, True, "保留版权结构"),
                 ConfigSchema("sensitive_patterns", list, True, ["email", "phone", "employee_id", "id_card", "ip_address", "url", "datetime", "person_name", "organization"], "敏感信息模式"),
                 ConfigSchema("invalid_comment_patterns", list, True, ["todo", "fixme", "version_info", "personal_signature", "change_history"], "无效注释模式"),
+            ],
+            ConfigSection.PIPELINE.value: [
+                ConfigSchema("default_pipeline", str, True, "standard", "默认pipeline", self._validate_pipeline_name),
+                ConfigSchema("pipelines", dict, True, {}, "pipeline配置", self._validate_pipelines),
+                ConfigSchema("continue_on_error", bool, True, True, "遇到错误时继续执行"),
+                ConfigSchema("work_dir", str, True, "data", "工作目录", self._validate_path),
             ]
         }
     
@@ -237,6 +244,47 @@ class ConfigManager:
         """验证报告格式列表"""
         valid_formats = ['json', 'csv', 'html', 'markdown', 'comprehensive']
         return isinstance(value, list) and all(fmt in valid_formats for fmt in value)
+    
+    def _validate_pipeline_name(self, value: str) -> bool:
+        """验证pipeline名称"""
+        return isinstance(value, str) and len(value) > 0 and value.replace('_', '').replace('-', '').isalnum()
+    
+    def _validate_pipelines(self, value: Dict[str, Any]) -> bool:
+        """验证pipeline配置"""
+        if not isinstance(value, dict):
+            return False
+        
+        for pipeline_name, pipeline_config in value.items():
+            if not isinstance(pipeline_config, dict):
+                return False
+            
+            # 检查必需字段
+            required_fields = ['name', 'description', 'steps']
+            for field in required_fields:
+                if field not in pipeline_config:
+                    return False
+            
+            # 验证步骤配置
+            steps = pipeline_config.get('steps', [])
+            if not isinstance(steps, list):
+                return False
+            
+            for step in steps:
+                if not isinstance(step, dict):
+                    return False
+                
+                # 检查步骤必需字段
+                step_required_fields = ['name', 'type', 'enabled']
+                for field in step_required_fields:
+                    if field not in step:
+                        return False
+                
+                # 验证步骤类型
+                valid_types = ['extractor', 'cleaner', 'analyzer']
+                if step.get('type') not in valid_types:
+                    return False
+        
+        return True
     
     def _load_config(self) -> Dict[str, Any]:
         """加载配置文件"""
@@ -450,5 +498,151 @@ class ConfigManager:
             logger.info("从字典导入配置成功")
         except Exception as e:
             logger.error(f"从字典导入配置失败: {e}")
+            raise
+    
+    def get_pipeline_config(self, pipeline_name: Optional[str] = None) -> Dict[str, Any]:
+        """获取pipeline配置"""
+        if pipeline_name is None:
+            pipeline_name = self.get('pipeline.default_pipeline', 'standard')
+        
+        pipelines = self.get('pipeline.pipelines', {})
+        if pipeline_name not in pipelines:
+            raise ValueError(f"Pipeline '{pipeline_name}' 不存在")
+        
+        return pipelines[pipeline_name]
+    
+    def list_pipelines(self) -> List[Dict[str, Any]]:
+        """列出所有可用的pipeline"""
+        pipelines = self.get('pipeline.pipelines', {})
+        result = []
+        
+        for name, config in pipelines.items():
+            result.append({
+                'name': name,
+                'display_name': config.get('name', name),
+                'description': config.get('description', ''),
+                'steps': len(config.get('steps', [])),
+                'enabled_steps': sum(1 for step in config.get('steps', []) if step.get('enabled', True))
+            })
+        
+        return result
+    
+    def validate_pipeline(self, pipeline_name: str) -> Dict[str, Any]:
+        """验证pipeline配置"""
+        try:
+            pipeline = self.get_pipeline_config(pipeline_name)
+            steps = pipeline.get('steps', [])
+            
+            # 检查步骤名称唯一性
+            step_names = [step['name'] for step in steps]
+            if len(step_names) != len(set(step_names)):
+                return {
+                    'valid': False,
+                    'error': '步骤名称必须唯一'
+                }
+            
+            # 检查依赖关系
+            step_deps = {step['name']: step.get('depends_on', []) for step in steps}
+            for step_name, deps in step_deps.items():
+                for dep in deps:
+                    if dep not in step_names:
+                        return {
+                            'valid': False,
+                            'error': f'步骤 {step_name} 依赖的步骤 {dep} 不存在'
+                        }
+            
+            # 检查循环依赖
+            if self._has_circular_dependency(step_deps):
+                return {
+                    'valid': False,
+                    'error': '存在循环依赖'
+                }
+            
+            return {
+                'valid': True,
+                'steps': len(steps),
+                'enabled_steps': sum(1 for step in steps if step.get('enabled', True))
+            }
+            
+        except Exception as e:
+            return {
+                'valid': False,
+                'error': str(e)
+            }
+    
+    def _has_circular_dependency(self, step_deps: Dict[str, List[str]]) -> bool:
+        """检查是否存在循环依赖"""
+        def dfs(node, visited, rec_stack):
+            visited.add(node)
+            rec_stack.add(node)
+            
+            for neighbor in step_deps.get(node, []):
+                if neighbor not in visited:
+                    if dfs(neighbor, visited, rec_stack):
+                        return True
+                elif neighbor in rec_stack:
+                    return True
+            
+            rec_stack.remove(node)
+            return False
+        
+        visited = set()
+        for node in step_deps:
+            if node not in visited:
+                if dfs(node, visited, set()):
+                    return True
+        
+        return False
+    
+    def add_pipeline(self, pipeline_name: str, pipeline_config: Dict[str, Any]):
+        """添加新的pipeline"""
+        try:
+            # 验证pipeline配置
+            if not self._validate_pipelines({pipeline_name: pipeline_config}):
+                raise ValueError("Pipeline配置验证失败")
+            
+            # 添加到配置
+            pipelines = self.get('pipeline.pipelines', {})
+            pipelines[pipeline_name] = pipeline_config
+            self.set('pipeline.pipelines', pipelines)
+            
+            logger.info(f"Pipeline '{pipeline_name}' 添加成功")
+            
+        except Exception as e:
+            logger.error(f"添加Pipeline失败: {e}")
+            raise
+    
+    def remove_pipeline(self, pipeline_name: str):
+        """删除pipeline"""
+        try:
+            pipelines = self.get('pipeline.pipelines', {})
+            if pipeline_name not in pipelines:
+                raise ValueError(f"Pipeline '{pipeline_name}' 不存在")
+            
+            del pipelines[pipeline_name]
+            self.set('pipeline.pipelines', pipelines)
+            
+            logger.info(f"Pipeline '{pipeline_name}' 删除成功")
+            
+        except Exception as e:
+            logger.error(f"删除Pipeline失败: {e}")
+            raise
+    
+    def update_pipeline(self, pipeline_name: str, pipeline_config: Dict[str, Any]):
+        """更新pipeline配置"""
+        try:
+            # 验证pipeline配置
+            if not self._validate_pipelines({pipeline_name: pipeline_config}):
+                raise ValueError("Pipeline配置验证失败")
+            
+            # 更新配置
+            pipelines = self.get('pipeline.pipelines', {})
+            pipelines[pipeline_name] = pipeline_config
+            self.set('pipeline.pipelines', pipelines)
+            
+            logger.info(f"Pipeline '{pipeline_name}' 更新成功")
+            
+        except Exception as e:
+            logger.error(f"更新Pipeline失败: {e}")
             raise
 

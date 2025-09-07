@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from .core import RepositoryManager, ConfigManager
+from .core.pipeline_manager import PipelineManager
 from .extractors import FileExtractor, CodeExtractor, TextExtractor
 from .cleaners import Deduplicator, JSONLContentCleaner, FileMetricsCleaner
 from .analyzers import CodeAnalyzer, MetricsCalculator, ReportGenerator
@@ -1026,6 +1027,295 @@ def config_wizard(ctx, interactive):
                 click.echo(f"\n{section.upper()}:")
                 for key, value in config_manager.config[section].items():
                     click.echo(f"  {key}: {value}")
+
+
+# Pipeline相关命令
+@main.group()
+@click.pass_context
+def pipeline(ctx):
+    """Pipeline管理命令"""
+    pass
+
+
+@pipeline.command()
+@click.option('--pipeline', '-p', help='指定pipeline名称')
+@click.pass_context
+def list_pipelines(ctx, pipeline):
+    """列出所有可用的pipeline"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        pipelines = config_manager.list_pipelines()
+        
+        if not pipelines:
+            click.echo("❌ 没有找到任何pipeline")
+            return
+        
+        click.echo("📋 可用的Pipeline:")
+        click.echo("=" * 60)
+        
+        for p in pipelines:
+            status = "✅" if p['enabled_steps'] > 0 else "❌"
+            click.echo(f"{status} {p['name']}")
+            click.echo(f"   显示名称: {p['display_name']}")
+            click.echo(f"   描述: {p['description']}")
+            click.echo(f"   步骤数: {p['steps']} (启用: {p['enabled_steps']})")
+            click.echo()
+        
+        if pipeline:
+            # 显示特定pipeline的详细信息
+            try:
+                pipeline_config = config_manager.get_pipeline_config(pipeline)
+                click.echo(f"🔍 Pipeline '{pipeline}' 详细信息:")
+                click.echo("=" * 40)
+                click.echo(f"名称: {pipeline_config.get('name', pipeline)}")
+                click.echo(f"描述: {pipeline_config.get('description', '无')}")
+                click.echo(f"步骤:")
+                
+                for i, step in enumerate(pipeline_config.get('steps', []), 1):
+                    status = "✅" if step.get('enabled', True) else "❌"
+                    click.echo(f"  {i}. {status} {step['name']} ({step['type']})")
+                    if step.get('depends_on'):
+                        click.echo(f"     依赖: {', '.join(step['depends_on'])}")
+                    if step.get('config'):
+                        click.echo(f"     配置: {step['config']}")
+                
+            except ValueError as e:
+                click.echo(f"❌ {e}")
+    
+    except Exception as e:
+        click.echo(f"❌ 列出pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('pipeline_name')
+@click.pass_context
+def validate(ctx, pipeline_name):
+    """验证pipeline配置"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        result = config_manager.validate_pipeline(pipeline_name)
+        
+        if result['valid']:
+            click.echo(f"✅ Pipeline '{pipeline_name}' 配置有效")
+            click.echo(f"   步骤数: {result['steps']}")
+            click.echo(f"   启用步骤数: {result['enabled_steps']}")
+        else:
+            click.echo(f"❌ Pipeline '{pipeline_name}' 配置无效")
+            click.echo(f"   错误: {result['error']}")
+    
+    except Exception as e:
+        click.echo(f"❌ 验证pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('pipeline_name')
+@click.pass_context
+def dry_run(ctx, pipeline_name):
+    """模拟执行pipeline（不实际执行）"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        pipeline_manager = PipelineManager(config_manager.config)
+        result = pipeline_manager.dry_run(pipeline_name)
+        
+        if 'error' in result:
+            click.echo(f"❌ 模拟执行失败: {result['error']}")
+            return
+        
+        click.echo(f"🔍 Pipeline '{pipeline_name}' 模拟执行结果:")
+        click.echo("=" * 50)
+        click.echo(f"总步骤数: {result['total_steps']}")
+        click.echo(f"启用步骤数: {result['enabled_steps']}")
+        click.echo(f"执行顺序: {' -> '.join(result['execution_order'])}")
+        click.echo()
+        
+        click.echo("📋 步骤详情:")
+        for step in result['steps']:
+            status = "✅" if step['enabled'] else "❌"
+            click.echo(f"  {status} {step['name']} ({step['type']})")
+            if step['input_file']:
+                click.echo(f"    输入: {step['input_file']}")
+            if step['output_file']:
+                click.echo(f"    输出: {step['output_file']}")
+            if step['depends_on']:
+                click.echo(f"    依赖: {', '.join(step['depends_on'])}")
+        
+        click.echo()
+        click.echo("📁 预估输出文件:")
+        for output_file in result['estimated_outputs']:
+            click.echo(f"  - {output_file}")
+    
+    except Exception as e:
+        click.echo(f"❌ 模拟执行失败: {e}")
+
+
+@pipeline.command()
+@click.argument('repo_name')
+@click.option('--pipeline', '-p', help='指定pipeline名称（默认使用标准pipeline）')
+@click.option('--output', '-o', type=click.Path(), help='输出目录')
+@click.option('--dry-run', is_flag=True, help='模拟执行（不实际执行）')
+@click.pass_context
+def run(ctx, repo_name, pipeline, output, dry_run):
+    """执行pipeline处理代码仓库"""
+    config_manager = ctx.obj['config_manager']
+    repo_manager = ctx.obj['repo_manager']
+    
+    try:
+        # 检查仓库是否存在
+        if not repo_manager.is_valid_repository(repo_name):
+            click.echo(f"❌ 仓库 '{repo_name}' 不存在")
+            return
+        
+        # 获取仓库路径
+        repo_path = repo_manager.get_repository_path(repo_name)
+        if not repo_path or not repo_path.exists():
+            click.echo(f"❌ 仓库路径不存在: {repo_path}")
+            return
+        
+        # 创建pipeline管理器
+        pipeline_manager = PipelineManager(config_manager.config)
+        
+        if dry_run:
+            # 模拟执行
+            result = pipeline_manager.dry_run(pipeline)
+            
+            if 'error' in result:
+                click.echo(f"❌ 模拟执行失败: {result['error']}")
+                return
+            
+            click.echo(f"🔍 Pipeline '{pipeline or 'default'}' 模拟执行结果:")
+            click.echo("=" * 50)
+            click.echo(f"总步骤数: {result['total_steps']}")
+            click.echo(f"启用步骤数: {result['enabled_steps']}")
+            click.echo(f"执行顺序: {' -> '.join(result['execution_order'])}")
+            click.echo()
+            
+            click.echo("📋 步骤详情:")
+            for step in result['steps']:
+                status = "✅" if step['enabled'] else "❌"
+                click.echo(f"  {status} {step['name']} ({step['type']})")
+                if step['input_file']:
+                    click.echo(f"    输入: {step['input_file']}")
+                if step['output_file']:
+                    click.echo(f"    输出: {step['output_file']}")
+                if step['depends_on']:
+                    click.echo(f"    依赖: {', '.join(step['depends_on'])}")
+            
+            click.echo()
+            click.echo("📁 预估输出文件:")
+            for output_file in result['estimated_outputs']:
+                click.echo(f"  - {output_file}")
+            
+            return
+        
+        # 实际执行
+        click.echo(f"🚀 开始执行Pipeline '{pipeline or 'default'}' 处理仓库 '{repo_name}'")
+        click.echo("=" * 60)
+        
+        result = pipeline_manager.execute_pipeline(
+            repo_path=repo_path,
+            pipeline_name=pipeline,
+            repo_name=repo_name,
+            output_dir=output
+        )
+        
+        if result['success']:
+            click.echo("✅ Pipeline执行成功!")
+            click.echo(f"   输出目录: {result['output_dir']}")
+            click.echo(f"   完成步骤: {', '.join(result['completed_steps'])}")
+            click.echo(f"   开始时间: {result['start_time']}")
+            click.echo(f"   结束时间: {result['end_time']}")
+            
+            # 显示步骤结果摘要
+            click.echo()
+            click.echo("📊 步骤执行结果:")
+            for step_name, step_result in result['steps'].items():
+                status = "✅" if step_result['success'] else "❌"
+                click.echo(f"  {status} {step_name} ({step_result['step_type']})")
+                if step_result.get('stats'):
+                    stats = step_result['stats']
+                    if 'files_extracted' in stats:
+                        click.echo(f"    提取文件数: {stats['files_extracted']}")
+                    if 'original_count' in stats:
+                        click.echo(f"    原始文件数: {stats['original_count']}")
+                    if 'deduplicated_count' in stats:
+                        click.echo(f"    去重后文件数: {stats['deduplicated_count']}")
+                    if 'removed_count' in stats:
+                        click.echo(f"    移除文件数: {stats['removed_count']}")
+                    if 'cleaned_files' in stats:
+                        click.echo(f"    清洗文件数: {stats['cleaned_files']}")
+            
+            if result['errors']:
+                click.echo()
+                click.echo("⚠️  执行过程中的错误:")
+                for error in result['errors']:
+                    click.echo(f"  - {error}")
+        else:
+            click.echo("❌ Pipeline执行失败!")
+            if result['errors']:
+                click.echo("错误信息:")
+                for error in result['errors']:
+                    click.echo(f"  - {error}")
+    
+    except Exception as e:
+        click.echo(f"❌ 执行pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('pipeline_name')
+@click.argument('config_file', type=click.Path(exists=True))
+@click.pass_context
+def add(ctx, pipeline_name, config_file):
+    """添加新的pipeline配置"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        import yaml
+        with open(config_file, 'r', encoding='utf-8') as f:
+            pipeline_config = yaml.safe_load(f)
+        
+        config_manager.add_pipeline(pipeline_name, pipeline_config)
+        click.echo(f"✅ 成功添加pipeline '{pipeline_name}'")
+    
+    except Exception as e:
+        click.echo(f"❌ 添加pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('pipeline_name')
+@click.pass_context
+def remove(ctx, pipeline_name):
+    """删除pipeline配置"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        config_manager.remove_pipeline(pipeline_name)
+        click.echo(f"✅ 成功删除pipeline '{pipeline_name}'")
+    
+    except Exception as e:
+        click.echo(f"❌ 删除pipeline失败: {e}")
+
+
+@pipeline.command()
+@click.argument('pipeline_name')
+@click.argument('config_file', type=click.Path(exists=True))
+@click.pass_context
+def update(ctx, pipeline_name, config_file):
+    """更新pipeline配置"""
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        import yaml
+        with open(config_file, 'r', encoding='utf-8') as f:
+            pipeline_config = yaml.safe_load(f)
+        
+        config_manager.update_pipeline(pipeline_name, pipeline_config)
+        click.echo(f"✅ 成功更新pipeline '{pipeline_name}'")
+    
+    except Exception as e:
+        click.echo(f"❌ 更新pipeline失败: {e}")
 
 
 if __name__ == '__main__':
