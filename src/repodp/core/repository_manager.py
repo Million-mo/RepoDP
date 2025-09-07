@@ -21,8 +21,8 @@ class RepositoryManager:
         self.repos_dir = self.data_dir / "repos"
         self.config_file = self.data_dir / "repositories.json"
         
-        # 创建必要的目录
-        self.repos_dir.mkdir(parents=True, exist_ok=True)
+        # 创建数据目录（但不创建repos目录，只在需要时创建）
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         
         # 加载仓库配置
         self.repositories = self._load_repositories()
@@ -49,6 +49,8 @@ class RepositoryManager:
     def add_repository(self, name: str, url: str, branch: str = "main") -> bool:
         """添加新的代码仓库（远程）"""
         try:
+            # 确保repos目录存在
+            self.repos_dir.mkdir(parents=True, exist_ok=True)
             repo_path = self.repos_dir / name
             
             # 如果目录已存在，先删除
@@ -155,6 +157,8 @@ class RepositoryManager:
                 logger.error(f"本地路径不是有效的git仓库: {local_path}")
                 return False
             
+            # 确保repos目录存在
+            self.repos_dir.mkdir(parents=True, exist_ok=True)
             repo_path = self.repos_dir / name
             
             # 如果目标目录已存在，先删除
@@ -284,4 +288,23 @@ class RepositoryManager:
             return True
         except InvalidGitRepositoryError:
             return False
+    
+    def get_all_repositories(self) -> Dict[str, dict]:
+        """获取所有仓库信息"""
+        return self.repositories.copy()
+    
+    def cleanup_empty_dirs(self) -> List[str]:
+        """清理空目录，返回被清理的目录列表"""
+        cleaned_dirs = []
+        
+        # 检查repos目录是否为空
+        if self.repos_dir.exists() and not any(self.repos_dir.iterdir()):
+            try:
+                self.repos_dir.rmdir()
+                cleaned_dirs.append(str(self.repos_dir))
+                logger.info(f"已清理空目录: {self.repos_dir}")
+            except OSError as e:
+                logger.warning(f"清理空目录失败 {self.repos_dir}: {e}")
+        
+        return cleaned_dirs
 

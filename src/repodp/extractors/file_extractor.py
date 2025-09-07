@@ -4,6 +4,7 @@
 
 import os
 import hashlib
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Generator
 import logging
@@ -21,8 +22,17 @@ class FileExtractor:
         extraction_config = config.get('extraction', config)
         self.file_types = extraction_config.get('file_types', [])
         self.exclude_dirs = extraction_config.get('exclude_dirs', [])
+        self.exclude_dir_patterns = extraction_config.get('exclude_dir_patterns', [])
         self.exclude_files = extraction_config.get('exclude_files', [])
         self.max_file_size = extraction_config.get('max_file_size', 10 * 1024 * 1024)
+        
+        # 编译正则表达式模式
+        self.compiled_patterns = []
+        for pattern in self.exclude_dir_patterns:
+            try:
+                self.compiled_patterns.append(re.compile(pattern))
+            except re.error as e:
+                logger.warning(f"无效的正则表达式模式 '{pattern}': {e}")
     
     def should_extract_file(self, file_path: Path) -> bool:
         """判断是否应该提取文件"""
@@ -46,7 +56,19 @@ class FileExtractor:
     
     def should_extract_dir(self, dir_path: Path) -> bool:
         """判断是否应该提取目录"""
-        return dir_path.name not in self.exclude_dirs
+        dir_name = dir_path.name
+        
+        # 检查精确匹配的排除目录
+        if dir_name in self.exclude_dirs:
+            return False
+        
+        # 检查正则表达式模式匹配
+        for pattern in self.compiled_patterns:
+            if pattern.search(dir_name):
+                logger.debug(f"目录被正则表达式排除: {dir_path} (匹配模式: {pattern.pattern})")
+                return False
+        
+        return True
     
     def calculate_file_hash(self, file_path: Path) -> str:
         """计算文件哈希值"""

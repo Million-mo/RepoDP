@@ -73,6 +73,34 @@ python -m src.repodp pipeline run <repo_name> --output /path/to/output
 python -m src.repodp pipeline run <repo_name> --dry-run
 ```
 
+### 6. 批量执行Pipeline
+
+```bash
+# 处理所有已添加的仓库
+python -m src.repodp pipeline batch --all
+
+# 处理所有远程仓库
+python -m src.repodp pipeline batch --all --filter remote
+
+# 处理所有本地引用仓库
+python -m src.repodp pipeline batch --all --filter local_reference
+
+# 处理指定的多个仓库
+python -m src.repodp pipeline batch repo1 repo2 repo3
+
+# 指定pipeline和输出目录
+python -m src.repodp pipeline batch --all --pipeline deep_clean --output /path/to/output
+
+# 模拟执行（预览处理计划）
+python -m src.repodp pipeline batch --all --dry-run
+
+# 不合并结果文件
+python -m src.repodp pipeline batch --all --no-merge
+
+# 设置并行工作线程数
+python -m src.repodp pipeline batch --all --workers 8
+```
+
 ## Pipeline配置
 
 Pipeline配置在 `config/config.yaml` 文件中定义：

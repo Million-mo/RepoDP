@@ -1,0 +1,103 @@
+analysis:
+  complexity_analysis: true
+  dependency_analysis: true
+  language_detection: true
+  metrics_calculation: true
+cleaning:
+  normalize_whitespace: false
+  preserve_structure: true
+  remove_blank_lines: false
+  remove_comments: false
+  remove_imports: false
+deduplication:
+  hash_algorithm: sha256
+  min_file_size: 100
+  similarity_threshold: 0.95
+extraction:
+  exclude_dirs:
+  - .git
+  - __pycache__
+  - node_modules
+  - .venv
+  - venv
+  - build
+  - dist
+  - target
+  exclude_files:
+  - .gitignore
+  - .gitattributes
+  - README.md
+  - LICENSE
+  file_types:
+  - .py
+  - .js
+  - .ts
+  - .java
+  - .cpp
+  - .c
+  - .h
+  - .go
+  - .rs
+  - .php
+  - .rb
+  - .swift
+  - .kt
+  max_file_size: 10485760
+file_metrics_cleaning:
+  backup_dir: data/backups
+  backup_enabled: true
+  thresholds:
+    max_average_line_length: 200
+    max_comment_percentage: 100
+    max_digit_percentage: 50
+    max_file_size: 1048576
+    max_hex_percentage: 30
+    max_line_count: 10000
+    max_line_length: 500
+    min_comment_percentage: 0
+jsonl_cleaning:
+  enable_comment_cleaning: true
+  enable_desensitization: true
+  invalid_comment_patterns:
+  - todo
+  - fixme
+  - version_info
+  - personal_signature
+  - change_history
+  preserve_copyright_structure: true
+  remove_invalid_comments: true
+  sensitive_patterns:
+  - email
+  - phone
+  - employee_id
+  - id_card
+  - ip_address
+  - url
+  - datetime
+  - person_name
+  - organization
+logging:
+  backup_count: 5
+  file: data/logs/repodp.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  max_file_size: 10485760
+performance:
+  batch_size: 100
+  max_workers: 4
+  memory_limit: 1024
+  timeout: 300
+pipeline:
+  continue_on_error: true
+  default_pipeline: standard
+  pipelines: {}
+  work_dir: data
+reporting:
+  default_format: comprehensive
+  output_dir: data/reports
+  supported_formats:
+  - json
+  - csv
+  - html
+  - markdown
+  - comprehensive

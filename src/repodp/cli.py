@@ -116,7 +116,18 @@ def main(ctx, verbose, config):
     ctx.obj['repo_manager'] = RepositoryManager()
 
 
-@main.command()
+# ============================================================================
+# 仓库管理命令组
+# ============================================================================
+
+@main.group()
+@click.pass_context
+def repo(ctx):
+    """仓库管理命令"""
+    pass
+
+
+@repo.command('add')
 @click.argument('urls_or_paths', nargs=-1, required=True)
 @click.option('--branch', '-b', default='main', help='分支名称')
 @click.pass_context
@@ -188,36 +199,7 @@ def add_repos(ctx, urls_or_paths, branch):
         click.echo(f"⚠️  有 {error_count} 个仓库添加失败")
 
 
-@main.command()
-@click.argument('name')
-@click.pass_context
-def update_repo(ctx, name):
-    """更新代码仓库"""
-    repo_manager = ctx.obj['repo_manager']
-    
-    if repo_manager.update_repository(name):
-        click.echo(f"✅ 成功更新仓库: {name}")
-    else:
-        click.echo(f"❌ 更新仓库失败: {name}")
-        raise click.Abort()
-
-
-@main.command()
-@click.argument('name')
-@click.pass_context
-def remove_repo(ctx, name):
-    """删除代码仓库"""
-    repo_manager = ctx.obj['repo_manager']
-    
-    if click.confirm(f"确定要删除仓库 '{name}' 吗？"):
-        if repo_manager.remove_repository(name):
-            click.echo(f"✅ 成功删除仓库: {name}")
-        else:
-            click.echo(f"❌ 删除仓库失败: {name}")
-            raise click.Abort()
-
-
-@main.command()
+@repo.command('list')
 @click.pass_context
 def list_repos(ctx):
     """列出所有仓库"""
@@ -246,7 +228,78 @@ def list_repos(ctx):
         click.echo()
 
 
-@main.command()
+@repo.command('update')
+@click.argument('name')
+@click.pass_context
+def update_repo(ctx, name):
+    """更新代码仓库"""
+    repo_manager = ctx.obj['repo_manager']
+    
+    if repo_manager.update_repository(name):
+        click.echo(f"✅ 成功更新仓库: {name}")
+    else:
+        click.echo(f"❌ 更新仓库失败: {name}")
+        raise click.Abort()
+
+
+@repo.command('remove')
+@click.argument('name')
+@click.pass_context
+def remove_repo(ctx, name):
+    """删除代码仓库"""
+    repo_manager = ctx.obj['repo_manager']
+    
+    if click.confirm(f"确定要删除仓库 '{name}' 吗？"):
+        if repo_manager.remove_repository(name):
+            click.echo(f"✅ 成功删除仓库: {name}")
+        else:
+            click.echo(f"❌ 删除仓库失败: {name}")
+            raise click.Abort()
+
+
+@repo.command('cleanup')
+@click.pass_context
+def cleanup(ctx):
+    """清理空目录和临时文件"""
+    repo_manager = ctx.obj['repo_manager']
+    config_manager = ctx.obj['config_manager']
+    
+    try:
+        click.echo("🧹 开始清理空目录...")
+        
+        # 清理RepositoryManager的空目录
+        cleaned_repos = repo_manager.cleanup_empty_dirs()
+        
+        # 清理PipelineManager的空目录
+        from .core.pipeline_manager import PipelineManager
+        pipeline_manager = PipelineManager(config_manager.config, repo_manager=repo_manager)
+        cleaned_temp = pipeline_manager.cleanup_empty_dirs()
+        
+        # 显示清理结果
+        all_cleaned = cleaned_repos + cleaned_temp
+        if all_cleaned:
+            click.echo(f"✅ 已清理 {len(all_cleaned)} 个空目录:")
+            for dir_path in all_cleaned:
+                click.echo(f"  📁 {dir_path}")
+        else:
+            click.echo("✅ 没有发现空目录")
+            
+    except Exception as e:
+        click.echo(f"❌ 清理失败: {e}")
+
+
+# ============================================================================
+# 数据处理命令组
+# ============================================================================
+
+@main.group()
+@click.pass_context
+def data(ctx):
+    """数据处理命令"""
+    pass
+
+
+@data.command('extract')
 @click.argument('name')
 @click.option('--output', '-o', type=click.Path(), help='输出目录')
 @click.option('--format', 'output_format', type=click.Choice(['json', 'jsonl']), default='jsonl', help='输出格式')
@@ -326,7 +379,7 @@ def extract(ctx, name, output, output_format):
         click.echo(f"📄 JSON结果保存到: {output_file}")
 
 
-@main.command()
+@data.command('clean')
 @click.argument('name')
 @click.option('--output', '-o', type=click.Path(), help='输出JSONL文件路径')
 @click.option('--in-place', '-i', is_flag=True, help='直接覆盖原JSONL文件')
@@ -397,7 +450,7 @@ def clean(ctx, name, output, in_place):
         raise click.Abort()
 
 
-@main.command()
+@data.command('deduplicate')
 @click.argument('name')
 @click.option('--strategy', type=click.Choice(['newest', 'oldest', 'first', 'last']), 
               default='newest', help='保留策略')
@@ -483,7 +536,7 @@ def deduplicate(ctx, name, strategy, output, in_place):
         click.echo("ℹ️  没有发现重复文件，无需处理")
 
 
-@main.command()
+@data.command('clean-metrics')
 @click.argument('name')
 @click.option('--thresholds', '-t', help='阈值配置文件路径 (JSON格式)')
 @click.option('--dry-run', '-d', is_flag=True, help='仅分析，不执行清洗操作')
@@ -692,7 +745,7 @@ def clean_metrics(ctx, name, thresholds, dry_run, output, in_place, verbose, max
                     click.echo(f"  • {rule_name}: {count} 个文件")
 
 
-@main.command()
+@data.command('analyze')
 @click.argument('name')
 @click.option('--format', 'report_format', type=click.Choice(['json', 'csv', 'html', 'markdown', 'comprehensive']), 
               default='comprehensive', help='报告格式')
@@ -747,7 +800,18 @@ def analyze(ctx, name, report_format, output):
             click.echo(f"  • {format_name.upper()} 报告: {report_path}")
 
 
-@main.command()
+# ============================================================================
+# 配置管理命令组
+# ============================================================================
+
+@main.group()
+@click.pass_context
+def config(ctx):
+    """配置管理命令"""
+    pass
+
+
+@config.command('set')
 @click.argument('key')
 @click.argument('value')
 @click.pass_context
@@ -775,7 +839,7 @@ def set_config(ctx, key, value):
         raise click.Abort()
 
 
-@main.command()
+@config.command('get')
 @click.argument('key')
 @click.pass_context
 def get_config(ctx, key):
@@ -789,7 +853,7 @@ def get_config(ctx, key):
         click.echo(f"❌ 配置不存在: {key}")
 
 
-@main.command()
+@config.command('list')
 @click.pass_context
 def list_config(ctx):
     """列出所有配置"""
@@ -806,7 +870,7 @@ def list_config(ctx):
     print_config(config_manager.config)
 
 
-@main.command()
+@config.command('export')
 @click.option('--file', '-f', type=click.Path(), help='导出配置文件')
 @click.pass_context
 def export_config(ctx, file):
@@ -820,7 +884,7 @@ def export_config(ctx, file):
     click.echo(f"✅ 配置已导出到: {file}")
 
 
-@main.command()
+@config.command('import')
 @click.argument('file', type=click.Path(exists=True))
 @click.pass_context
 def import_config(ctx, file):
@@ -831,7 +895,7 @@ def import_config(ctx, file):
     click.echo(f"✅ 配置已从 {file} 导入")
 
 
-@main.command()
+@config.command('generate')
 @click.option('--output', '-o', type=click.Path(), help='输出文件路径')
 @click.option('--no-comments', is_flag=True, help='不包含注释')
 @click.pass_context
@@ -849,7 +913,7 @@ def generate_config(ctx, output, no_comments):
         click.echo(template)
 
 
-@main.command()
+@config.command('validate')
 @click.argument('file', type=click.Path(exists=True))
 @click.pass_context
 def validate_config(ctx, file):
@@ -866,7 +930,7 @@ def validate_config(ctx, file):
             click.echo(f"  • {error}")
 
 
-@main.command()
+@config.command('info')
 @click.option('--section', '-s', help='指定配置节')
 @click.pass_context
 def config_info(ctx, section):
@@ -898,7 +962,7 @@ def config_info(ctx, section):
             click.echo()
 
 
-@main.command()
+@config.command('wizard')
 @click.option('--interactive', '-i', is_flag=True, help='交互式配置向导')
 @click.pass_context
 def config_wizard(ctx, interactive):
@@ -1240,20 +1304,48 @@ def update(ctx, pipeline_name, config_file):
         click.echo(f"❌ 更新pipeline失败: {e}")
 
 
-@pipeline.command()
-@click.argument('repo_names', nargs=-1, required=True)
+@pipeline.command('batch')
+@click.argument('repo_names', nargs=-1, required=False)
+@click.option('--all', '-a', is_flag=True, help='处理所有已添加的仓库')
 @click.option('--pipeline', '-p', help='指定pipeline名称（默认使用标准pipeline）')
 @click.option('--output', '-o', type=click.Path(), help='输出目录')
 @click.option('--workers', '-w', default=4, help='并行处理的工作线程数')
 @click.option('--no-merge', is_flag=True, help='不合并结果文件')
 @click.option('--dry-run', is_flag=True, help='模拟执行（不实际执行）')
+@click.option('--filter', '-f', help='根据仓库类型过滤（local_reference/remote）')
 @click.pass_context
-def batch(ctx, repo_names, pipeline, output, workers, no_merge, dry_run):
+def batch(ctx, repo_names, all, pipeline, output, workers, no_merge, dry_run, filter):
     """批量执行pipeline处理多个代码仓库"""
     config_manager = ctx.obj['config_manager']
     repo_manager = ctx.obj['repo_manager']
     
     try:
+        # 确定要处理的仓库列表
+        if all:
+            # 从 repositories.json 读取所有仓库
+            all_repos = repo_manager.get_all_repositories()
+            if not all_repos:
+                click.echo("❌ 没有找到任何已添加的仓库，请先使用 'add-repos' 命令添加仓库")
+                return
+            
+            # 根据过滤器筛选仓库
+            if filter:
+                filtered_repos = {name: info for name, info in all_repos.items() 
+                                if info.get('type') == filter}
+                if not filtered_repos:
+                    click.echo(f"❌ 没有找到类型为 '{filter}' 的仓库")
+                    return
+                all_repos = filtered_repos
+            
+            repo_names = list(all_repos.keys())
+            click.echo(f"📋 找到 {len(repo_names)} 个仓库: {', '.join(repo_names)}")
+        else:
+            # 使用命令行指定的仓库
+            if not repo_names:
+                click.echo("❌ 请指定要处理的仓库名称，或使用 --all 选项处理所有仓库")
+                click.echo("💡 使用 'repodp pipeline batch --all' 处理所有已添加的仓库")
+                return
+        
         # 验证所有仓库是否存在
         invalid_repos = []
         for repo_name in repo_names:

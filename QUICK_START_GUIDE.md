@@ -99,12 +99,25 @@ python quick_start.py
 #### 批量处理多个仓库
 ```bash
 # 添加多个仓库
-./repodp add-repo https://github.com/user/repo1.git repo1
-./repodp add-repo https://github.com/user/repo2.git repo2
+./repodp add-repos https://github.com/user/repo1.git https://github.com/user/repo2.git
 
-# 批量提取
-./repodp extract repo1
-./repodp extract repo2
+# 或者添加本地仓库
+./repodp add-repos /path/to/local/repo1 /path/to/local/repo2
+
+# 批量处理所有已添加的仓库
+./repodp pipeline batch --all
+
+# 只处理远程仓库
+./repodp pipeline batch --all --filter remote
+
+# 只处理本地引用仓库
+./repodp pipeline batch --all --filter local_reference
+
+# 处理指定的多个仓库
+./repodp pipeline batch repo1 repo2 repo3
+
+# 预览处理计划（不实际执行）
+./repodp pipeline batch --all --dry-run
 
 # 批量分析
 ./repodp analyze repo1

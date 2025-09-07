@@ -112,9 +112,31 @@ class PipelineManager:
         self.output_dir = self.work_dir / 'output'
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # 临时目录
+        # 临时目录（只在需要时创建）
         self.temp_dir = self.work_dir / 'temp'
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._temp_dir_created = False
+    
+    def _ensure_temp_dir(self):
+        """确保临时目录存在"""
+        if not self._temp_dir_created:
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            self._temp_dir_created = True
+    
+    def cleanup_empty_dirs(self) -> List[str]:
+        """清理空目录，返回被清理的目录列表"""
+        cleaned_dirs = []
+        
+        # 检查temp目录是否为空
+        if self.temp_dir.exists() and not any(self.temp_dir.iterdir()):
+            try:
+                self.temp_dir.rmdir()
+                cleaned_dirs.append(str(self.temp_dir))
+                logger.info(f"已清理空目录: {self.temp_dir}")
+                self._temp_dir_created = False
+            except OSError as e:
+                logger.warning(f"清理空目录失败 {self.temp_dir}: {e}")
+        
+        return cleaned_dirs
     
     def get_pipeline(self, pipeline_name: Optional[str] = None) -> Dict[str, Any]:
         """获取pipeline配置"""

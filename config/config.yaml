@@ -29,6 +29,18 @@ extraction:
   - .idea
   - .vscode
   - .DS_Store
+  exclude_dir_patterns:
+  # 虚拟环境相关目录的正则表达式模式
+  - '^\.?venv.*$'           # .venv, venv, .venv-*, venv-* 等
+  - '^\.?env.*$'            # .env, env, .env-*, env-* 等
+  - '^.*venv.*$'            # 任何包含venv的目录名
+  - '^.*env.*$'             # 任何包含env的目录名（更宽泛的匹配）
+  - '^\.?conda.*$'          # .conda, conda, .conda-* 等
+  - '^\.?pipenv.*$'         # .pipenv, pipenv 等
+  - '^\.?poetry.*$'         # .poetry, poetry 等
+  - '^\.?virtualenv.*$'     # .virtualenv, virtualenv 等
+  - '^.*_venv.*$'           # 任何以_venv结尾或包含_venv的目录
+  - '^.*_env.*$'            # 任何以_env结尾或包含_env的目录
   exclude_files:
   - .gitignore
   - .gitattributes
@@ -39,32 +51,32 @@ extraction:
   - Pipfile.lock
   file_types:
   - .py
-  - .js
-  - .ts
-  - .java
-  - .cpp
-  - .c
-  - .h
-  - .go
-  - .rs
-  - .php
-  - .rb
-  - .swift
-  - .kt
-  - .cs
-  - .scala
-  - .r
-  - .m
-  - .sh
-  - .sql
-  - .html
-  - .css
-  - .xml
-  - .json
-  - .yaml
-  - .yml
-  - .md
-  - .txt
+  # - .js
+  # - .ts
+  # - .java
+  # - .cpp
+  # - .c
+  # - .h
+  # - .go
+  # - .rs
+  # - .php
+  # - .rb
+  # - .swift
+  # - .kt
+  # - .cs
+  # - .scala
+  # - .r
+  # - .m
+  # - .sh
+  # - .sql
+  # - .html
+  # - .css
+  # - .xml
+  # - .json
+  # - .yaml
+  # - .yml
+  # - .md
+  # - .txt
   max_file_size: 20971520
 
 file_metrics_cleaning:
