@@ -51,6 +51,7 @@ extraction:
   - Pipfile.lock
   file_types:
   - .py
+  - .cj
   # - .js
   # - .ts
   # - .java

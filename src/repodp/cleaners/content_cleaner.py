@@ -4,7 +4,7 @@
 
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,8 @@ class ContentCleaner:
             return self._remove_java_comments(content)
         elif language in ['cpp', 'c']:
             return self._remove_cpp_comments(content)
+        elif language == 'cangjie':
+            return self._remove_cangjie_comments(content)
         elif language == 'html':
             return self._remove_html_comments(content)
         elif language == 'css':
@@ -146,6 +148,17 @@ class ContentCleaner:
         
         return content
     
+    def _remove_cangjie_comments(self, content: str) -> str:
+        """移除仓颉语言注释"""
+        # 仓颉语言使用类似C风格的注释语法
+        # 移除单行注释
+        content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
+        
+        # 移除多行注释
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+        
+        return content
+    
     def _remove_html_comments(self, content: str) -> str:
         """移除HTML注释"""
         content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
@@ -193,6 +206,8 @@ class ContentCleaner:
             return self._remove_java_imports(content)
         elif language in ['cpp', 'c']:
             return self._remove_cpp_includes(content)
+        elif language == 'cangjie':
+            return self._remove_cangjie_imports(content)
         else:
             return content
     
@@ -244,6 +259,21 @@ class ContentCleaner:
         
         return '\n'.join(cleaned_lines)
     
+    def _remove_cangjie_imports(self, content: str) -> str:
+        """移除仓颉语言导入语句"""
+        lines = content.splitlines()
+        cleaned_lines = []
+        
+        for line in lines:
+            stripped_line = line.strip()
+            # 仓颉语言可能使用类似C风格的include语句
+            if not (stripped_line.startswith('#include') or 
+                   stripped_line.startswith('import ') or
+                   stripped_line.startswith('use ')):
+                cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines)
+    
     def _preserve_structure(self, content: str, language: str) -> str:
         """保留代码结构"""
         # 确保函数、类等结构完整
@@ -251,6 +281,8 @@ class ContentCleaner:
             return self._preserve_python_structure(content)
         elif language in ['javascript', 'typescript']:
             return self._preserve_js_structure(content)
+        elif language == 'cangjie':
+            return self._preserve_cangjie_structure(content)
         else:
             return content
     
@@ -273,6 +305,22 @@ class ContentCleaner:
     def _preserve_js_structure(self, content: str) -> str:
         """保留JavaScript代码结构"""
         # 确保大括号匹配
+        lines = content.splitlines()
+        cleaned_lines = []
+        
+        for line in lines:
+            if line.strip():  # 非空行
+                cleaned_lines.append(line)
+            else:
+                # 保留必要的空行
+                if cleaned_lines and cleaned_lines[-1].strip().endswith('{'):
+                    cleaned_lines.append('')
+        
+        return '\n'.join(cleaned_lines)
+    
+    def _preserve_cangjie_structure(self, content: str) -> str:
+        """保留仓颉语言代码结构"""
+        # 仓颉语言可能使用类似C风格的大括号结构
         lines = content.splitlines()
         cleaned_lines = []
         

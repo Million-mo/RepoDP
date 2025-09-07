@@ -206,6 +206,8 @@ class JSONLContentCleaner:
             return self._clean_java_comments(content)
         elif language in ['cpp', 'c']:
             return self._clean_cpp_comments(content)
+        elif language == 'cangjie':
+            return self._clean_cangjie_comments(content)
         elif language == 'html':
             return self._clean_html_comments(content)
         elif language == 'css':
@@ -328,6 +330,11 @@ class JSONLContentCleaner:
     def _clean_cpp_comments(self, content: str) -> str:
         """清洗C/C++注释"""
         # C/C++注释处理类似JavaScript
+        return self._clean_js_comments(content)
+    
+    def _clean_cangjie_comments(self, content: str) -> str:
+        """清洗仓颉语言注释"""
+        # 仓颉语言使用类似C风格的注释语法
         return self._clean_js_comments(content)
     
     def _clean_html_comments(self, content: str) -> str:

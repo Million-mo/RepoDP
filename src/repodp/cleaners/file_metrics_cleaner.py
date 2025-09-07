@@ -131,7 +131,7 @@ class FileMetricsCleaner:
             '.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.go', '.rs',
             '.php', '.rb', '.swift', '.kt', '.cs', '.scala', '.r', '.m',
             '.sh', '.sql', '.html', '.css', '.xml', '.json', '.yaml', '.yml',
-            '.md', '.txt', '.vue', '.jsx', '.tsx', '.svelte'
+            '.md', '.txt', '.vue', '.jsx', '.tsx', '.svelte', '.cj'
         }
         
         # 排除的目录
@@ -340,6 +340,7 @@ class FileMetricsCleaner:
             '.yml': {'single': '#', 'block_start': None, 'block_end': None},
             '.vue': {'single': '//', 'block_start': '/*', 'block_end': '*/'},
             '.svelte': {'single': '//', 'block_start': '/*', 'block_end': '*/'},
+            '.cj': {'single': '//', 'block_start': '/*', 'block_end': '*/'},  # 仓颉语言
         }
         
         patterns = comment_patterns.get(file_extension, {'single': '#', 'block_start': None, 'block_end': None})
